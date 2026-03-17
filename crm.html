@@ -1,0 +1,1420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HashIO CRM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --sidebar-bg:#0f172a;--sidebar-w:240px;
+      --accent:#3b82f6;--accent-h:#2563eb;
+      --success:#10b981;--warning:#f59e0b;--danger:#ef4444;
+      --bg:#f1f5f9;--card:#fff;--text:#0f172a;--muted:#64748b;
+      --border:#e2e8f0;--r:8px;
+    }
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;font-size:14px}
+
+    /* ── Sidebar ── */
+    #sidebar{width:var(--sidebar-w);background:var(--sidebar-bg);position:fixed;top:0;left:0;bottom:0;display:flex;flex-direction:column;z-index:100}
+    .sb-logo{padding:20px 20px 16px;border-bottom:1px solid rgba(255,255,255,.08)}
+    .sb-logo h1{font-size:18px;font-weight:700;color:#fff;letter-spacing:-.5px}
+    .sb-logo h1 span{color:var(--accent)}
+    .sb-logo p{font-size:11px;color:rgba(255,255,255,.35);margin-top:2px}
+    .sb-nav{padding:12px 8px;flex:1;overflow-y:auto}
+    .sb-section{font-size:10px;font-weight:600;color:rgba(255,255,255,.3);text-transform:uppercase;letter-spacing:.8px;padding:12px 12px 6px}
+    .nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:6px;cursor:pointer;color:rgba(255,255,255,.65);font-size:13.5px;font-weight:500;transition:all .15s;margin-bottom:2px;user-select:none}
+    .nav-item:hover{background:rgba(255,255,255,.08);color:#fff}
+    .nav-item.active{background:var(--accent);color:#fff}
+    .nav-item .ni{width:18px;text-align:center;font-size:15px}
+    .sb-footer{padding:16px;border-top:1px solid rgba(255,255,255,.08)}
+    .sb-user{display:flex;align-items:center;gap:10px}
+    .u-avatar{width:32px;height:32px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:13px;flex-shrink:0}
+    .u-name{font-size:13px;color:#fff;font-weight:500}
+    .u-email{font-size:11px;color:rgba(255,255,255,.4)}
+
+    /* ── Main ── */
+    #main{margin-left:var(--sidebar-w);flex:1;display:flex;flex-direction:column;min-height:100vh}
+    #topbar{background:var(--card);border-bottom:1px solid var(--border);padding:0 24px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+    #topbar h2{font-size:18px;font-weight:600}
+    #topbar-actions{display:flex;gap:8px;align-items:center}
+    #content{padding:24px;flex:1}
+
+    /* ── Cards ── */
+    .card{background:var(--card);border-radius:var(--r);border:1px solid var(--border);padding:20px}
+    .card-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+    .card-title{font-size:15px;font-weight:600}
+
+    /* ── Stats ── */
+    .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+    .stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:20px;position:relative;overflow:hidden}
+    .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+    .stat-card.blue::before{background:var(--accent)}
+    .stat-card.green::before{background:var(--success)}
+    .stat-card.amber::before{background:var(--warning)}
+    .stat-card.red::before{background:var(--danger)}
+    .stat-lbl{font-size:12px;font-weight:500;color:var(--muted);margin-bottom:8px}
+    .stat-val{font-size:28px;font-weight:700}
+    .stat-sub{font-size:12px;color:var(--muted);margin-top:4px}
+    .stat-ico{position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:36px;opacity:.08}
+
+    /* ── Charts row ── */
+    .charts-row{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:24px}
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+
+    /* ── Buttons ── */
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all .15s;white-space:nowrap;font-family:inherit}
+    .btn-primary{background:var(--accent);color:#fff}
+    .btn-primary:hover{background:var(--accent-h)}
+    .btn-secondary{background:var(--bg);color:var(--text);border:1px solid var(--border)}
+    .btn-secondary:hover{background:var(--border)}
+    .btn-danger{background:var(--danger);color:#fff}
+    .btn-danger:hover{background:#dc2626}
+    .btn-ghost{background:transparent;color:var(--muted);border:1px solid transparent}
+    .btn-ghost:hover{background:var(--bg);color:var(--text)}
+    .btn-sm{padding:5px 10px;font-size:12px}
+    .btn-icon{padding:6px 8px}
+
+    /* ── Table ── */
+    .tbl-wrap{overflow-x:auto}
+    table{width:100%;border-collapse:collapse}
+    thead th{text-align:left;padding:10px 14px;font-size:12px;font-weight:600;color:var(--muted);background:var(--bg);border-bottom:1px solid var(--border);white-space:nowrap}
+    tbody tr{border-bottom:1px solid var(--border);transition:background .1s}
+    tbody tr:hover{background:#f8fafc}
+    tbody tr:last-child{border-bottom:none}
+    tbody td{padding:12px 14px;vertical-align:middle}
+
+    /* ── Badge ── */
+    .badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600}
+    .badge-blue{background:#dbeafe;color:#1d4ed8}
+    .badge-green{background:#d1fae5;color:#065f46}
+    .badge-amber{background:#fef3c7;color:#92400e}
+    .badge-red{background:#fee2e2;color:#991b1b}
+    .badge-gray{background:#f1f5f9;color:#475569}
+    .badge-purple{background:#ede9fe;color:#5b21b6}
+
+    /* ── Toolbar / Search ── */
+    .toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+    .search-box{display:flex;align-items:center;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:7px 12px;gap:8px;flex:1;max-width:320px}
+    .search-box input{border:none;outline:none;font-size:13px;background:transparent;width:100%;color:var(--text);font-family:inherit}
+    .filter-sel{padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card);color:var(--text);cursor:pointer;outline:none;font-family:inherit}
+    .filter-sel:focus{border-color:var(--accent)}
+
+    /* ── Form ── */
+    .form-group{margin-bottom:16px}
+    .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    label{display:block;font-size:12px;font-weight:500;color:var(--muted);margin-bottom:5px}
+    input,select,textarea{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--text);background:var(--card);outline:none;transition:border-color .15s;font-family:inherit}
+    input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+    textarea{resize:vertical;min-height:80px}
+
+    /* ── Modal ── */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px}
+    .modal{background:var(--card);border-radius:10px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto}
+    .modal-hdr{padding:20px 24px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .modal-hdr h3{font-size:16px;font-weight:600;flex:1}
+    .modal-close{width:28px;height:28px;border-radius:50%;background:var(--bg);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--muted);flex-shrink:0}
+    .modal-close:hover{background:var(--border)}
+    .modal-body{padding:20px 24px}
+    .modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px}
+
+    /* ── Kanban ── */
+    .kanban{display:flex;gap:14px;overflow-x:auto;padding-bottom:8px;align-items:flex-start}
+    .k-col{flex-shrink:0;width:230px}
+    .k-col-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg);border-radius:6px 6px 0 0;border:1px solid var(--border);border-bottom:none}
+    .k-col-title{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
+    .k-dot{width:8px;height:8px;border-radius:50%}
+    .k-count{font-size:11px;color:var(--muted)}
+    .k-col-body{background:var(--bg);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;padding:8px;min-height:180px;display:flex;flex-direction:column;gap:8px}
+    .deal-card{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:12px;cursor:pointer;transition:box-shadow .15s,border-color .15s}
+    .deal-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.08);border-color:var(--accent)}
+    .deal-title{font-size:13px;font-weight:500;margin-bottom:5px}
+    .deal-co{font-size:12px;color:var(--muted);margin-bottom:8px}
+    .deal-foot{display:flex;justify-content:space-between;align-items:center}
+    .deal-val{font-size:13px;font-weight:600;color:var(--success)}
+    .deal-dt{font-size:11px;color:var(--muted)}
+    .prog-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-top:8px}
+    .prog-fill{height:100%;border-radius:3px}
+
+    /* ── Tasks ── */
+    .task-item{display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);transition:background .1s}
+    .task-item:last-child{border-bottom:none}
+    .task-item:hover{background:#f8fafc}
+    .task-chk{width:18px;height:18px;border:2px solid var(--border);border-radius:50%;cursor:pointer;flex-shrink:0;margin-top:2px;display:flex;align-items:center;justify-content:center;transition:all .15s}
+    .task-chk.done{background:var(--success);border-color:var(--success)}
+    .task-chk.done::after{content:'✓';color:#fff;font-size:11px}
+    .task-body{flex:1}
+    .task-ttl{font-size:13px;font-weight:500}
+    .task-ttl.done{text-decoration:line-through;color:var(--muted)}
+    .task-meta{font-size:12px;color:var(--muted);margin-top:3px;display:flex;gap:10px;flex-wrap:wrap}
+    .task-acts{display:flex;gap:4px;opacity:0;transition:opacity .15s}
+    .task-item:hover .task-acts{opacity:1}
+
+    /* ── Avatar ── */
+    .avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;color:#fff;flex-shrink:0}
+
+    /* ── Empty state ── */
+    .empty{text-align:center;padding:48px 24px;color:var(--muted)}
+    .empty .eico{font-size:48px;margin-bottom:12px}
+    .empty h3{font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px}
+
+    /* ── Tabs ── */
+    .tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:20px}
+    .tab{padding:10px 16px;font-size:13px;font-weight:500;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;white-space:nowrap}
+    .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+    .tab:hover{color:var(--text)}
+
+    /* ── View toggle ── */
+    .view-toggle{display:flex;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px}
+    .vt-btn{padding:5px 10px;border-radius:4px;cursor:pointer;font-size:13px;color:var(--muted);border:none;background:transparent;transition:all .15s;font-family:inherit}
+    .vt-btn.active{background:var(--card);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.1)}
+
+    /* ── Activity ── */
+    .act-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+    .act-item:last-child{border-bottom:none}
+    .act-dot{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+    .act-text{font-size:13px}
+    .act-time{font-size:11px;color:var(--muted);margin-top:2px}
+
+    /* ── Toast ── */
+    #toasts{position:fixed;bottom:24px;right:24px;z-index:999;display:flex;flex-direction:column;gap:8px}
+    .toast{background:#0f172a;color:#fff;padding:12px 16px;border-radius:8px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.2);display:flex;align-items:center;gap:8px;animation:slideUp .2s ease}
+    .toast.success{background:#064e3b}
+    .toast.error{background:#7f1d1d}
+    @keyframes slideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+    /* ── MRR ── */
+    .dash-tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:20px}
+    .dash-tab{padding:10px 20px;font-size:14px;font-weight:500;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;white-space:nowrap}
+    .dash-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+    .dash-tab:hover{color:var(--text)}
+    .mrr-val{font-size:14px;font-weight:700;color:var(--success)}
+    .renewal-warn{color:var(--warning);font-weight:500}
+    .renewal-ok{color:var(--muted)}
+    .renewal-overdue{color:var(--danger);font-weight:500}
+    .mrr-section-lbl{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:20px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+    #mrr-fields{padding:14px 16px;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0;margin-top:8px}
+    #mrr-fields-lbl{font-size:12px;font-weight:600;color:var(--success);margin-bottom:12px}
+    .mrr-status-badge-active{background:#d1fae5;color:#065f46}
+    .mrr-status-badge-paused{background:#fef3c7;color:#92400e}
+    .mrr-status-badge-churned{background:#fee2e2;color:#991b1b}
+
+    /* ── Side Panel ── */
+    #panel-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:150;display:none;cursor:pointer}
+    #panel-root{position:fixed;top:0;right:0;bottom:0;width:440px;background:var(--card);border-left:1px solid var(--border);z-index:151;transform:translateX(100%);transition:transform .25s ease;overflow-y:auto;box-shadow:-6px 0 24px rgba(0,0,0,.1)}
+    #panel-root.open{transform:translateX(0)}
+    .panel-hdr{padding:20px 20px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:12px}
+    .panel-avatar{width:46px;height:46px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;color:#fff;flex-shrink:0}
+    .panel-name{font-size:17px;font-weight:700;line-height:1.2}
+    .panel-sub{font-size:12px;color:var(--muted);margin-top:3px}
+    .panel-body{padding:20px}
+    .panel-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px}
+    .panel-stat{background:var(--bg);border-radius:8px;padding:12px;text-align:center}
+    .panel-stat-val{font-size:20px;font-weight:700}
+    .panel-stat-lbl{font-size:11px;color:var(--muted);margin-top:2px}
+    .panel-slbl{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:20px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+    .panel-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
+    .panel-row:last-child{border-bottom:none}
+    .panel-item{padding:9px 0;border-bottom:1px solid var(--border);font-size:13px}
+    .panel-item:last-child{border-bottom:none}
+    .lnk{color:var(--accent);cursor:pointer}
+    .lnk:hover{text-decoration:underline}
+    .stat-card{cursor:pointer}
+    .stat-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);transform:translateY(-1px);transition:all .15s}
+
+    /* ── Sync indicator ── */
+    #sync-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--card);transition:all .15s;white-space:nowrap}
+    #sync-pill:hover{background:var(--bg)}
+    #sync-dot{width:7px;height:7px;border-radius:50%;background:#cbd5e1}
+    #sync-dot.ok{background:var(--success)}
+    #sync-dot.syncing{background:var(--warning);animation:blink .8s infinite}
+    #sync-dot.error{background:var(--danger)}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+    /* ── Utility ── */
+    .flex{display:flex}.items-center{align-items:center}.gap-2{gap:8px}.gap-3{gap:12px}
+    .muted{color:var(--muted)}.text-sm{font-size:12px}.fw6{font-weight:600}
+    .ml-auto{margin-left:auto}
+    ::-webkit-scrollbar{width:6px;height:6px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+    ::-webkit-scrollbar-thumb:hover{background:#cbd5e1}
+  </style>
+</head>
+<body>
+
+<!-- ═══ SIDEBAR ═══ -->
+<div id="sidebar">
+  <div class="sb-logo">
+    <h1>Hash<span>IO</span> CRM</h1>
+    <p>B2B Sales Platform</p>
+  </div>
+  <nav class="sb-nav">
+    <div class="sb-section">Main</div>
+    <div class="nav-item active" data-page="dashboard"><span class="ni">📊</span> Dashboard</div>
+    <div class="nav-item" data-page="contacts"><span class="ni">👤</span> Contacts</div>
+    <div class="nav-item" data-page="companies"><span class="ni">🏢</span> Companies</div>
+    <div class="sb-section">Sales</div>
+    <div class="nav-item" data-page="pipeline"><span class="ni">🎯</span> Pipeline</div>
+    <div class="nav-item" data-page="tasks"><span class="ni">✅</span> Tasks</div>
+  </nav>
+  <div class="sb-footer">
+    <div class="sb-user">
+      <div class="u-avatar">M</div>
+      <div>
+        <div class="u-name">Matthew</div>
+        <div class="u-email">matt@gohashio.com</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MAIN ═══ -->
+<div id="main">
+  <div id="topbar">
+    <h2 id="page-title">Dashboard</h2>
+    <div id="sync-pill" onclick="showSyncSettings()" title="Google Sheets sync">
+      <div id="sync-dot"></div>
+      <span id="sync-label">Local only</span>
+    </div>
+    <div id="topbar-actions"></div>
+  </div>
+  <div id="content"></div>
+</div>
+
+<div id="modal-root"></div>
+<div id="panel-overlay" onclick="closePanel()"></div>
+<div id="panel-root"></div>
+<div id="toasts"></div>
+
+<script>
+// ══════════════════════════════════════════════
+// DATABASE
+// ══════════════════════════════════════════════
+const DB = {
+  _get(k){try{return JSON.parse(localStorage.getItem(k))||[]}catch{return[]}},
+  _set(k,v){localStorage.setItem(k,JSON.stringify(v))},
+  _id(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)},
+  _now(){return new Date().toISOString()},
+  getContacts(){return this._get('crm_c')},
+  saveContact(d){
+    const a=this.getContacts();
+    if(d.id){const i=a.findIndex(x=>x.id===d.id);if(i>-1)a[i]={...a[i],...d,updatedAt:this._now()}}
+    else a.push({...d,id:this._id(),createdAt:this._now()});
+    this._set('crm_c',a);return a;
+  },
+  deleteContact(id){this._set('crm_c',this.getContacts().filter(x=>x.id!==id))},
+  getCompanies(){return this._get('crm_co')},
+  saveCompany(d){
+    const a=this.getCompanies();
+    if(d.id){const i=a.findIndex(x=>x.id===d.id);if(i>-1)a[i]={...a[i],...d,updatedAt:this._now()}}
+    else a.push({...d,id:this._id(),createdAt:this._now()});
+    this._set('crm_co',a);return a;
+  },
+  deleteCompany(id){this._set('crm_co',this.getCompanies().filter(x=>x.id!==id))},
+  getDeals(){return this._get('crm_d')},
+  saveDeal(d){
+    const a=this.getDeals();
+    if(d.id){const i=a.findIndex(x=>x.id===d.id);if(i>-1)a[i]={...a[i],...d,updatedAt:this._now()}}
+    else a.push({...d,id:this._id(),createdAt:this._now()});
+    this._set('crm_d',a);return a;
+  },
+  deleteDeal(id){this._set('crm_d',this.getDeals().filter(x=>x.id!==id))},
+  getTasks(){return this._get('crm_t')},
+  saveTask(d){
+    const a=this.getTasks();
+    if(d.id){const i=a.findIndex(x=>x.id===d.id);if(i>-1)a[i]={...a[i],...d,updatedAt:this._now()}}
+    else a.push({...d,id:this._id(),createdAt:this._now()});
+    this._set('crm_t',a);return a;
+  },
+  deleteTask(id){this._set('crm_t',this.getTasks().filter(x=>x.id!==id))},
+  getActivity(){return this._get('crm_act')},
+  log(type,text,icon='📝'){
+    const a=this.getActivity();
+    a.unshift({id:this._id(),type,text,icon,createdAt:this._now()});
+    if(a.length>60)a.splice(60);
+    this._set('crm_act',a);
+  },
+  seed(){
+    if(this.getCompanies().length>0)return;
+    const now=this._now();
+    // ── Real customer data imported from QuickBooks ──
+    this._set('crm_co',[
+      {id:'co1', name:'BeLeaf Medical, LLC',          industry:'Cultivation',  licenseCount:1, createdAt:now},
+      {id:'co2', name:'Best State LLC',               industry:'Cultivation',  licenseCount:1, notes:'DBA: Oregrown · Bend, OR · Micro License', createdAt:now},
+      {id:'co3', name:'Bison Infused Kentucky, LLC',  industry:'Cultivation',  licenseCount:1, createdAt:now},
+      {id:'co4', name:'Blue Sage',                    industry:'Cultivation',  licenseCount:1, notes:'DBA: Vivid MO', createdAt:now},
+      {id:'co5', name:'Calyx Peak',                   industry:'Cultivation',  licenseCount:1, createdAt:now},
+      {id:'co6', name:'Collective Cannabis Brands, LLC', industry:'Cultivation', licenseCount:1, createdAt:now},
+      {id:'co7', name:'Dark Horse Kentucky',          industry:'Cultivation',  licenseCount:1, notes:'Legal entity: Natural State Green Grass Cannaco, LLC', createdAt:now},
+      {id:'co8', name:'Darkhorse Missouri',           industry:'Cultivation',  licenseCount:1, createdAt:now},
+      {id:'co9', name:'Honey Green LLC',              industry:'Cultivation',  licenseCount:1, createdAt:now},
+      {id:'co10',name:'Flora Farms MIP',              industry:'Cultivation',  licenseCount:1, notes:'Also: Noah\'s Arc Foundation', createdAt:now},
+      {id:'co11',name:'Vertical Enterprise, LLC',     industry:'Vertical',     licenseCount:1, createdAt:now},
+      {id:'co12',name:'Vibe Cannabis',                industry:'Cultivation',  licenseCount:1, createdAt:now},
+      {id:'co13',name:'Vivid Kentucky',              industry:'Cultivation',  licenseCount:1, createdAt:now},
+      {id:'co14',name:'Loom Labs',                   industry:'Cultivation',  licenseCount:1, notes:'Micro License', createdAt:now},
+    ]);
+    this._set('crm_c',[
+      {id:'ct1', firstName:'Scott',    lastName:'Lay',      email:'scott.lay@beleafco.com',              phone:'(618) 477-6380',  title:'Contact',          companyId:'co1',  status:'Customer', createdAt:now},
+      {id:'ct2', firstName:'Billing',  lastName:'',         email:'Accounting@oregrown.com',             phone:'',               title:'Accounting',       companyId:'co2',  status:'Customer', createdAt:now},
+      {id:'ct3', firstName:'Billing',  lastName:'',         email:'accounting@bluesagecanna.com',        phone:'',               title:'Accounting',       companyId:'co4',  status:'Customer', createdAt:now},
+      {id:'ct4', firstName:'AP',       lastName:'',         email:'ap@calyxpeak.com',                    phone:'',               title:'Accounts Payable', companyId:'co5',  status:'Customer', createdAt:now},
+      {id:'ct5', firstName:'C.',       lastName:'Roberts',  email:'croberts@darkhorsecannabis.com',      phone:'(501) 259-5817', title:'Contact',          companyId:'co6',  status:'Customer', createdAt:now},
+      {id:'ct6', firstName:'K.',       lastName:'Turner',   email:'kturner@darkhorsecannabis.com',       phone:'',               title:'Contact',          companyId:'co8',  status:'Customer', createdAt:now},
+      {id:'ct7', firstName:'Billing',  lastName:'',         email:'accounting@honeygreenmo.com',         phone:'+1 (479) 387-1840', title:'Accounting',    companyId:'co9',  status:'Customer', createdAt:now},
+      {id:'ct8', firstName:'AP',       lastName:'',         email:'accountspayable@florafarmsmo.com',    phone:'',               title:'Accounts Payable', companyId:'co10', status:'Customer', createdAt:now},
+      {id:'ct9', firstName:'Controller',lastName:'',        email:'controller@vertical-cannabis.com',    phone:'',               title:'Controller',       companyId:'co11', status:'Customer', createdAt:now},
+      {id:'ct10',firstName:'Nate',     lastName:'',         email:'nate@vibecanna.com',                  phone:'',               title:'Contact',          companyId:'co12', status:'Customer', createdAt:now},
+    ]);
+    this._set('crm_d',[
+      {id:'dl1', title:'BeLeaf Medical — HashIO License',             contactId:'ct1',  companyId:'co1',  value:48600, stage:'Closed Won', probability:100, closeDate:'2025-01-01', mrr:4050,  billingCycle:'monthly', contractStart:'2025-01-01', mrrStatus:'active',   createdAt:now},
+      {id:'dl2', title:'Best State LLC — HashIO License',             contactId:'ct2',  companyId:'co2',  value:7200,  stage:'Closed Won', probability:100, closeDate:'2025-01-01', mrr:600,   billingCycle:'monthly', contractStart:'2025-01-01', mrrStatus:'active',   createdAt:now},
+      {id:'dl3', title:'Bison Infused Kentucky — HashIO License',     contactId:'',     companyId:'co3',  value:18000, stage:'Closed Won', probability:100, closeDate:'2025-01-01', mrr:1500,  billingCycle:'monthly', contractStart:'2025-01-01', mrrStatus:'active',   createdAt:now},
+      {id:'dl4', title:'Blue Sage (Vivid MO) — HashIO License',       contactId:'ct3',  companyId:'co4',  value:14400, stage:'Closed Won', probability:100, closeDate:'2025-01-01', mrr:1200,  billingCycle:'monthly', contractStart:'2025-01-01', mrrStatus:'active',   createdAt:now},
+      {id:'dl5', title:'Calyx Peak — HashIO License',                 contactId:'ct4',  companyId:'co5',  value:30000, stage:'Closed Won', probability:100, closeDate:'2025-01-01', mrr:2500,  billingCycle:'monthly', contractStart:'2025-01-01', mrrStatus:'active',   createdAt:now},
+      {id:'dl6', title:'Collective Cannabis Brands — HashIO License', contactId:'ct5',  companyId:'co6',  value:18000, stage:'Closed Won', probability:100, closeDate:'2025-01-01', mrr:1500,  billingCycle:'monthly', contractStart:'2025-01-01', mrrStatus:'active',   createdAt:now},
+      {id:'dl7', title:'Dark Horse Kentucky — HashIO License',        contactId:'',     companyId:'co7',  value:24000, stage:'Closed Won', probability:100, closeDate:'2025-01-01', mrr:2000,  billingCycle:'monthly', contractStart:'2025-01-01', mrrStatus:'active',   createdAt:now},
+      {id:'dl8', title:'Darkhorse Missouri — HashIO License',         contactId:'ct6',  companyId:'co8',  value:18000, stage:'Closed Won', probability:100, closeDate:'2025-01-01', mrr:1500,  billingCycle:'monthly', contractStart:'2025-01-01', mrrStatus:'active',   createdAt:now},
+      {id:'dl9', title:'Honey Green LLC — HashIO License',            contactId:'ct7',  companyId:'co9',  value:27000, stage:'Closed Won', probability:100, closeDate:'2025-01-01', mrr:2250,  billingCycle:'monthly', contractStart:'2025-01-01', mrrStatus:'active',   createdAt:now},
+      {id:'dl10',title:'Flora Farms MIP — HashIO License',            contactId:'ct8',  companyId:'co10', value:18000, stage:'Closed Won', probability:100, closeDate:'2025-01-01', mrr:1500,  billingCycle:'monthly', contractStart:'2025-01-01', mrrStatus:'active',   createdAt:now},
+      {id:'dl11',title:'Vertical Enterprise — HashIO License',        contactId:'ct9',  companyId:'co11', value:30000, stage:'Closed Won', probability:100, closeDate:'2025-01-01', mrr:2500,  billingCycle:'monthly', contractStart:'2025-01-01', mrrStatus:'active',   createdAt:now},
+      {id:'dl12',title:'Vibe Cannabis — HashIO License',              contactId:'ct10', companyId:'co12', value:30000, stage:'Closed Won', probability:100, closeDate:'2025-01-01', mrr:2500,  billingCycle:'monthly', contractStart:'2025-01-01', mrrStatus:'churned',  createdAt:now},
+      {id:'dl13',title:'Vivid Kentucky — HashIO License',            contactId:'',     companyId:'co13', value:24000, stage:'Closed Won', probability:100, closeDate:'2025-01-01', mrr:2000,  billingCycle:'monthly', contractStart:'2025-01-01', mrrStatus:'active',   createdAt:now},
+      {id:'dl14',title:'Loom Labs — HashIO Micro License',           contactId:'',     companyId:'co14', value:7200,  stage:'Closed Won', probability:100, closeDate:'2025-01-01', mrr:600,   billingCycle:'monthly', contractStart:'2025-01-01', mrrStatus:'active',   createdAt:now},
+    ]);
+    this._set('crm_t',[]);
+    this._set('crm_act',[
+      {id:'a1',type:'deal',text:'Imported 14 customers from QuickBooks',icon:'📥',createdAt:now},
+    ]);
+  }
+};
+
+// ══════════════════════════════════════════════
+// CONFIG & HELPERS
+// ══════════════════════════════════════════════
+const STAGES={
+  Lead:{color:'#6366f1',badge:'badge-purple'},
+  Qualified:{color:'#3b82f6',badge:'badge-blue'},
+  Proposal:{color:'#f59e0b',badge:'badge-amber'},
+  Negotiation:{color:'#f97316',badge:'badge-amber'},
+  'Closed Won':{color:'#10b981',badge:'badge-green'},
+  'Closed Lost':{color:'#ef4444',badge:'badge-red'},
+};
+const STATUS_BADGE={Lead:'badge-purple',Prospect:'badge-blue',Customer:'badge-green',Churned:'badge-red'};
+const PRI_BADGE={high:'badge-red',medium:'badge-amber',low:'badge-gray'};
+const AVATAR_COLORS=['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316'];
+
+const $=id=>document.getElementById(id);
+const fc=v=>'$'+Number(v||0).toLocaleString();
+const fd=d=>d?new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
+const ago=d=>{
+  const m=Math.floor((Date.now()-new Date(d))/60000);
+  if(m<1)return'just now';if(m<60)return m+'m ago';
+  const h=Math.floor(m/60);if(h<24)return h+'h ago';
+  return Math.floor(h/24)+'d ago';
+};
+const avatarBg=s=>{let h=0;for(const c of s)h=c.charCodeAt(0)+((h<<5)-h);return AVATAR_COLORS[Math.abs(h)%AVATAR_COLORS.length]};
+const inits=(f,l)=>((f?.[0]||'')+(l?.[0]||'')).toUpperCase();
+const coName=id=>{const c=DB.getCompanies().find(x=>x.id===id);return c?c.name:'—'};
+const ctName=id=>{const c=DB.getContacts().find(x=>x.id===id);return c?`${c.firstName} ${c.lastName}`:'—'};
+const isOverdue=d=>d&&new Date(d)<new Date(new Date().toDateString());
+const isToday=d=>d&&new Date(d).toDateString()===new Date().toDateString();
+
+function toast(msg,type='success'){
+  const el=document.createElement('div');
+  el.className=`toast ${type}`;
+  el.innerHTML=`<span>${type==='success'?'✓':'✕'}</span>${msg}`;
+  $('toasts').appendChild(el);
+  setTimeout(()=>{el.style.opacity='0';el.style.transition='opacity .3s';setTimeout(()=>el.remove(),300)},2500);
+}
+function closeModal(){$('modal-root').innerHTML=''}
+
+// ── Side Panel ──
+function openPanel(html){
+  const p=$('panel-root'),o=$('panel-overlay');
+  p.innerHTML=html;
+  o.style.display='block';
+  requestAnimationFrame(()=>p.classList.add('open'));
+}
+function closePanel(){
+  const p=$('panel-root'),o=$('panel-overlay');
+  p.classList.remove('open');
+  o.style.display='none';
+}
+
+function openCompanyPanel(coId){
+  if(!coId||coId==='—')return;
+  const co=DB.getCompanies().find(x=>x.id===coId);
+  if(!co)return;
+  const cts=DB.getContacts().filter(c=>c.companyId===coId);
+  const allDeals=DB.getDeals().filter(d=>d.companyId===coId);
+  const openDeals=allDeals.filter(d=>!['Closed Won','Closed Lost'].includes(d.stage));
+  const wonDeals=allDeals.filter(d=>d.stage==='Closed Won');
+  const pipeVal=openDeals.reduce((s,d)=>s+Number(d.value||0),0);
+  const wonVal=wonDeals.reduce((s,d)=>s+Number(d.value||0),0);
+  const openTasks=DB.getTasks().filter(t=>t.status!=='completed'&&(cts.some(c=>c.id===t.contactId)||allDeals.some(d=>d.id===t.dealId)));
+  const totalMRR=wonDeals.filter(d=>d.mrrStatus==='active'&&d.mrr).reduce((s,d)=>s+Number(d.mrr||0),0);
+  const bg=avatarBg(co.name);
+  openPanel(`
+    <div class="panel-hdr">
+      <div class="panel-avatar" style="background:${bg}">${co.name[0].toUpperCase()}</div>
+      <div style="flex:1">
+        <div class="panel-name">${co.name}</div>
+        <div class="panel-sub">${[co.industry,co.size?co.size+' employees':null].filter(Boolean).join(' · ')}</div>
+      </div>
+      <button class="modal-close" onclick="closePanel()">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="panel-stats">
+        <div class="panel-stat" onclick="FILTERS.contactSearch='${co.name}';closePanel();nav('contacts')" style="cursor:pointer" title="View contacts">
+          <div class="panel-stat-val">${cts.length}</div><div class="panel-stat-lbl">Contacts</div>
+        </div>
+        <div class="panel-stat" onclick="FILTERS.dealSearch='';closePanel();nav('pipeline')" style="cursor:pointer" title="View pipeline">
+          <div class="panel-stat-val">${openDeals.length}</div><div class="panel-stat-lbl">Open Deals</div>
+        </div>
+        <div class="panel-stat" style="background:#f0fdf4">
+          <div class="panel-stat-val" style="color:var(--success);font-size:16px">${fc(totalMRR||pipeVal)}</div>
+          <div class="panel-stat-lbl">${totalMRR?'MRR':'Pipeline'}</div>
+        </div>
+      </div>
+
+      <div class="panel-slbl">Details</div>
+      <div>
+        ${co.industry?`<div class="panel-row"><span class="muted">Industry</span><span class="badge badge-purple">${co.industry}</span></div>`:''}
+        ${co.licenseCount?`<div class="panel-row"><span class="muted">Licenses</span><span class="fw6">🪪 ${co.licenseCount}</span></div>`:''}
+        ${co.size?`<div class="panel-row"><span class="muted">Size</span><span>${co.size} employees</span></div>`:''}
+        ${co.website?`<div class="panel-row"><span class="muted">Website</span><a class="lnk" href="https://${co.website}" target="_blank">${co.website}</a></div>`:''}
+        ${co.address?`<div class="panel-row"><span class="muted">Address</span><span>${co.address}</span></div>`:''}
+        ${wonVal?`<div class="panel-row"><span class="muted">Closed Won</span><span class="fw6" style="color:var(--success)">${fc(wonVal)}</span></div>`:''}
+        ${co.notes?`<div style="font-size:13px;color:var(--muted);padding:10px 0">${co.notes}</div>`:''}
+      </div>
+
+      <div class="panel-slbl">Contacts (${cts.length})</div>
+      ${cts.length===0?'<div style="font-size:13px;color:var(--muted)">No contacts yet.</div>':cts.map(c=>`
+        <div class="panel-item" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="openContactPanel('${c.id}')">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="avatar" style="background:${avatarBg(c.firstName+c.lastName)};width:28px;height:28px;font-size:11px">${inits(c.firstName,c.lastName)}</div>
+            <div><div style="font-weight:500">${c.firstName} ${c.lastName}</div><div class="text-sm muted">${c.title||''}</div></div>
+          </div>
+          <span class="badge ${STATUS_BADGE[c.status]||'badge-gray'}">${c.status||''}</span>
+        </div>`).join('')}
+
+      <div class="panel-slbl">Deals (${allDeals.length})</div>
+      ${allDeals.length===0?'<div style="font-size:13px;color:var(--muted)">No deals yet.</div>':allDeals.map(d=>`
+        <div class="panel-item" style="cursor:pointer" onclick="closePanel();openDealModal('${d.id}')">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-weight:500">${d.title}</span>
+            <span class="badge ${STAGES[d.stage]?.badge||'badge-gray'}">${d.stage}</span>
+          </div>
+          <div style="font-size:12px;color:var(--success);margin-top:2px">${fc(d.value)}${d.mrr?' · '+fc(d.mrr)+'/mo':''}</div>
+        </div>`).join('')}
+
+      ${openTasks.length?`
+        <div class="panel-slbl">Open Tasks (${openTasks.length})</div>
+        ${openTasks.map(t=>`
+          <div class="panel-item" style="display:flex;align-items:center;gap:10px">
+            <div class="task-chk" onclick="toggleTask('${t.id}');closePanel();render()"></div>
+            <div style="flex:1">
+              <div style="font-size:13px">${t.title}</div>
+              <div style="font-size:11px;color:${isOverdue(t.dueDate)?'var(--danger)':'var(--muted)'}">${t.dueDate?fd(t.dueDate):''}</div>
+            </div>
+            <span class="badge ${PRI_BADGE[t.priority]||'badge-gray'}">${t.priority}</span>
+          </div>`).join('')}`:''}
+
+      <div style="margin-top:24px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="closePanel();openCompanyModal('${co.id}')">✏️ Edit Company</button>
+        <button class="btn btn-secondary btn-sm" onclick="closePanel();openDealModal(null,'Lead','${co.id}')">+ Add Deal</button>
+        <button class="btn btn-secondary btn-sm" onclick="closePanel();openContactModal(null,'${co.id}')">+ Add Contact</button>
+      </div>
+    </div>`);
+}
+
+function openContactPanel(ctId){
+  if(!ctId||ctId==='—')return;
+  const c=DB.getContacts().find(x=>x.id===ctId);
+  if(!c)return;
+  const co=DB.getCompanies().find(x=>x.id===c.companyId);
+  const deals=DB.getDeals().filter(d=>d.contactId===ctId);
+  const tasks=DB.getTasks().filter(t=>t.contactId===ctId);
+  const openTasks=tasks.filter(t=>t.status!=='completed');
+  const bg=avatarBg(`${c.firstName}${c.lastName}`);
+  openPanel(`
+    <div class="panel-hdr">
+      <div class="panel-avatar" style="background:${bg};border-radius:50%">${inits(c.firstName,c.lastName)}</div>
+      <div style="flex:1">
+        <div class="panel-name">${c.firstName} ${c.lastName}</div>
+        <div class="panel-sub">${[c.title,co?co.name:null].filter(Boolean).join(' · ')}</div>
+      </div>
+      <button class="modal-close" onclick="closePanel()">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="panel-stats">
+        <div class="panel-stat">
+          <div class="panel-stat-val">${deals.length}</div><div class="panel-stat-lbl">Deals</div>
+        </div>
+        <div class="panel-stat">
+          <div class="panel-stat-val">${openTasks.length}</div><div class="panel-stat-lbl">Open Tasks</div>
+        </div>
+        <div class="panel-stat">
+          <span class="badge ${STATUS_BADGE[c.status]||'badge-gray'}" style="font-size:12px">${c.status||'—'}</span>
+          <div class="panel-stat-lbl" style="margin-top:6px">Status</div>
+        </div>
+      </div>
+
+      <div class="panel-slbl">Contact Info</div>
+      <div>
+        ${c.email?`<div class="panel-row"><span class="muted">Email</span><a class="lnk" href="mailto:${c.email}">${c.email}</a></div>`:''}
+        ${c.phone?`<div class="panel-row"><span class="muted">Phone</span><a class="lnk" href="tel:${c.phone}">${c.phone}</a></div>`:''}
+        ${co?`<div class="panel-row"><span class="muted">Company</span><span class="lnk" onclick="openCompanyPanel('${co.id}')">${co.name}</span></div>`:''}
+        ${co?.industry?`<div class="panel-row"><span class="muted">Industry</span><span class="badge badge-purple">${co.industry}</span></div>`:''}
+        ${c.notes?`<div style="font-size:13px;color:var(--muted);padding:10px 0">${c.notes}</div>`:''}
+      </div>
+
+      <div class="panel-slbl">Deals (${deals.length})</div>
+      ${deals.length===0?'<div style="font-size:13px;color:var(--muted)">No deals yet.</div>':deals.map(d=>`
+        <div class="panel-item" style="cursor:pointer" onclick="closePanel();openDealModal('${d.id}')">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-weight:500">${d.title}</span>
+            <span class="badge ${STAGES[d.stage]?.badge||'badge-gray'}">${d.stage}</span>
+          </div>
+          <div style="font-size:12px;color:var(--success);margin-top:2px">${fc(d.value)}</div>
+        </div>`).join('')}
+
+      ${tasks.length?`
+        <div class="panel-slbl">Tasks (${tasks.length})</div>
+        ${tasks.map(t=>`
+          <div class="panel-item" style="display:flex;align-items:center;gap:10px">
+            <div class="task-chk ${t.status==='completed'?'done':''}" onclick="toggleTask('${t.id}');closePanel();render()"></div>
+            <div style="flex:1">
+              <div style="font-size:13px;${t.status==='completed'?'text-decoration:line-through;color:var(--muted)':''}">${t.title}</div>
+              <div style="font-size:11px;color:${isOverdue(t.dueDate)&&t.status!=='completed'?'var(--danger)':'var(--muted)'}">${t.dueDate?fd(t.dueDate):''}</div>
+            </div>
+            <span class="badge ${PRI_BADGE[t.priority]||'badge-gray'}">${t.priority}</span>
+          </div>`).join('')}`:''}
+
+      <div style="margin-top:24px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="closePanel();openContactModal('${c.id}')">✏️ Edit Contact</button>
+        <button class="btn btn-secondary btn-sm" onclick="closePanel();openTaskModal(null,'${c.id}')">+ Add Task</button>
+        ${c.email?`<a class="btn btn-secondary btn-sm" href="mailto:${c.email}">✉️ Email</a>`:''}
+      </div>
+    </div>`);
+}
+
+// ══════════════════════════════════════════════
+// ROUTER
+// ══════════════════════════════════════════════
+let PAGE='dashboard';
+let PIPE_VIEW='kanban';
+let CHARTS={};
+let FILTERS={contactSearch:'',contactStatus:'',companySearch:'',dealSearch:'',dealStage:'',taskTab:'all',taskSearch:'',dashTab:'overview'};
+const mrrStatus={active:{label:'Active',cls:'mrr-status-badge-active'},paused:{label:'Paused',cls:'mrr-status-badge-paused'},churned:{label:'Churned',cls:'mrr-status-badge-churned'}};
+function effectiveMRR(d){
+  if(!d.mrr||d.mrrStatus==='churned')return 0;
+  return Number(d.mrr)||0;
+}
+function daysUntil(dateStr){
+  if(!dateStr)return null;
+  return Math.ceil((new Date(dateStr)-new Date())/86400000);
+}
+
+function nav(page){
+  PAGE=page;
+  document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
+  $('page-title').textContent={dashboard:'Dashboard',contacts:'Contacts',companies:'Companies',pipeline:'Pipeline',tasks:'Tasks'}[page]||page;
+  render();
+}
+document.querySelectorAll('.nav-item').forEach(el=>el.addEventListener('click',()=>nav(el.dataset.page)));
+
+function render(){
+  Object.values(CHARTS).forEach(c=>{try{c.destroy()}catch{}});CHARTS={};
+  const cont=$('content'),acts=$('topbar-actions');
+  ({dashboard:renderDash,contacts:renderContacts,companies:renderCompanies,pipeline:renderPipeline,tasks:renderTasks}[PAGE]||renderDash)(cont,acts);
+}
+
+// ══════════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════════
+function renderDash(el,acts){
+  acts.innerHTML=`<button class="btn btn-secondary btn-sm" onclick="exportJSON()">⬇ Export Data</button>`;
+  el.innerHTML=`
+    <div class="dash-tabs">
+      <div class="dash-tab ${FILTERS.dashTab==='overview'?'active':''}" onclick="FILTERS.dashTab='overview';renderDash(document.getElementById('content'),document.getElementById('topbar-actions'))">📊 Overview</div>
+      <div class="dash-tab ${FILTERS.dashTab==='mrr'?'active':''}" onclick="FILTERS.dashTab='mrr';renderDash(document.getElementById('content'),document.getElementById('topbar-actions'))">💰 MRR &amp; Customers</div>
+    </div>
+    <div id="dash-body"></div>`;
+  if(FILTERS.dashTab==='mrr') renderMRR($('dash-body'));
+  else renderDashOverview($('dash-body'));
+}
+
+function renderDashOverview(el){
+  const contacts=DB.getContacts(),deals=DB.getDeals(),tasks=DB.getTasks(),activity=DB.getActivity();
+  const openDeals=deals.filter(d=>!['Closed Won','Closed Lost'].includes(d.stage));
+  const pipeVal=openDeals.reduce((s,d)=>s+Number(d.value||0),0);
+  const wonDeals=deals.filter(d=>d.stage==='Closed Won');
+  const wonVal=wonDeals.reduce((s,d)=>s+Number(d.value||0),0);
+  const dueTasks=tasks.filter(t=>t.status!=='completed'&&(isToday(t.dueDate)||isOverdue(t.dueDate)));
+  const stageOrder=Object.keys(STAGES);
+  const stageVals={};stageOrder.forEach(s=>stageVals[s]=0);
+  deals.forEach(d=>stageVals[d.stage]=(stageVals[d.stage]||0)+Number(d.value||0));
+
+  el.innerHTML=`
+    <div class="stats-grid">
+      <div class="stat-card blue" onclick="nav('contacts')" title="View all contacts"><div class="stat-lbl">Total Contacts</div><div class="stat-val">${contacts.length}</div><div class="stat-sub">${contacts.filter(c=>c.status==='Lead').length} leads · ${contacts.filter(c=>c.status==='Customer').length} customers</div><div class="stat-ico">👤</div></div>
+      <div class="stat-card amber" onclick="PIPE_VIEW='kanban';nav('pipeline')" title="View pipeline"><div class="stat-lbl">Open Pipeline</div><div class="stat-val">${fc(pipeVal)}</div><div class="stat-sub">${openDeals.length} active deals</div><div class="stat-ico">🎯</div></div>
+      <div class="stat-card green" onclick="FILTERS.dashTab='mrr';renderDash(document.getElementById('content'),document.getElementById('topbar-actions'))" title="View MRR"><div class="stat-lbl">Closed Won</div><div class="stat-val">${fc(wonVal)}</div><div class="stat-sub">${wonDeals.length} deals won</div><div class="stat-ico">🏆</div></div>
+      <div class="stat-card red" onclick="FILTERS.taskTab='overdue';nav('tasks')" title="View overdue tasks"><div class="stat-lbl">Tasks Due</div><div class="stat-val">${dueTasks.length}</div><div class="stat-sub">${tasks.filter(t=>t.status!=='completed'&&isToday(t.dueDate)).length} today · ${tasks.filter(t=>t.status!=='completed'&&isOverdue(t.dueDate)).length} overdue</div><div class="stat-ico">✅</div></div>
+    </div>
+    <div class="charts-row">
+      <div class="card"><div class="card-hdr"><div class="card-title">Pipeline by Stage</div><span class="text-sm muted">${deals.length} total deals</span></div><canvas id="chartPipe" height="200"></canvas></div>
+      <div class="card"><div class="card-hdr"><div class="card-title">Win / Loss</div></div><canvas id="chartStatus" height="200"></canvas></div>
+    </div>
+    <div class="two-col">
+      <div class="card"><div class="card-hdr"><div class="card-title">Recent Activity</div></div>
+        ${activity.slice(0,6).map(a=>`<div class="act-item"><div class="act-dot" style="background:${a.type==='deal'?'#dbeafe':a.type==='contact'?'#d1fae5':'#fef3c7'}">${a.icon}</div><div><div class="act-text">${a.text}</div><div class="act-time">${ago(a.createdAt)}</div></div></div>`).join('')||'<div class="muted text-sm" style="padding:12px 0">No recent activity yet.</div>'}
+      </div>
+      <div class="card"><div class="card-hdr"><div class="card-title">Upcoming Tasks</div><button class="btn btn-primary btn-sm" onclick="nav('tasks')">View All</button></div>
+        ${tasks.filter(t=>t.status!=='completed').slice(0,5).map(t=>`
+          <div class="task-item" style="padding:10px 0">
+            <div class="task-chk ${t.status==='completed'?'done':''}" onclick="toggleTask('${t.id}')"></div>
+            <div class="task-body">
+              <div class="task-ttl">${t.title}</div>
+              <div class="task-meta">
+                <span style="color:${isOverdue(t.dueDate)?'var(--danger)':isToday(t.dueDate)?'var(--warning)':'var(--muted)'}">
+                  ${isOverdue(t.dueDate)?'⚠ Overdue':isToday(t.dueDate)?'📅 Today':fd(t.dueDate)}
+                </span>
+                <span class="badge ${PRI_BADGE[t.priority]||'badge-gray'}">${t.priority}</span>
+              </div>
+            </div>
+          </div>`).join('')||'<div class="empty" style="padding:24px"><div class="eico">✅</div><p>All caught up!</p></div>'}
+      </div>
+    </div>`;
+
+  const ctx1=$('chartPipe');
+  if(ctx1) CHARTS.pipe=new Chart(ctx1,{type:'bar',data:{labels:stageOrder,datasets:[{label:'Value',data:stageOrder.map(s=>stageVals[s]||0),backgroundColor:stageOrder.map(s=>STAGES[s].color+'99'),borderColor:stageOrder.map(s=>STAGES[s].color),borderWidth:2,borderRadius:4}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'},grid:{color:'#f1f5f9'}},x:{grid:{display:false}}}}});
+  const ctx2=$('chartStatus');
+  if(ctx2) CHARTS.status=new Chart(ctx2,{type:'doughnut',data:{labels:['Open','Won','Lost'],datasets:[{data:[openDeals.length,wonDeals.length,deals.filter(d=>d.stage==='Closed Lost').length],backgroundColor:['#3b82f6','#10b981','#ef4444'],borderWidth:0,hoverOffset:4}]},options:{responsive:true,cutout:'65%',plugins:{legend:{position:'bottom',labels:{padding:16,font:{size:12}}}}}});
+}
+
+function renderMRR(el){
+  const deals=DB.getDeals();
+  const customers=deals.filter(d=>d.stage==='Closed Won');
+  const active=customers.filter(d=>d.mrrStatus==='active'&&d.mrr);
+  const totalMRR=active.reduce((s,d)=>s+effectiveMRR(d),0);
+  const totalARR=totalMRR*12;
+  const avgMRR=active.length?Math.round(totalMRR/active.length):0;
+  const renewingSoon=customers.filter(d=>d.contractEnd&&daysUntil(d.contractEnd)!==null&&daysUntil(d.contractEnd)<=60&&daysUntil(d.contractEnd)>=0);
+
+  el.innerHTML=`
+    <div class="stats-grid">
+      <div class="stat-card green"><div class="stat-lbl">Monthly Recurring Revenue</div><div class="stat-val">${fc(totalMRR)}</div><div class="stat-sub">${active.length} active customer${active.length!==1?'s':''}</div><div class="stat-ico">💰</div></div>
+      <div class="stat-card blue"><div class="stat-lbl">Annual Recurring Revenue</div><div class="stat-val">${fc(totalARR)}</div><div class="stat-sub">MRR × 12</div><div class="stat-ico">📈</div></div>
+      <div class="stat-card amber"><div class="stat-lbl">Avg MRR / Customer</div><div class="stat-val">${fc(avgMRR)}</div><div class="stat-sub">across active accounts</div><div class="stat-ico">⚡</div></div>
+      <div class="stat-card red"><div class="stat-lbl">Renewals ≤ 60 Days</div><div class="stat-val">${renewingSoon.length}</div><div class="stat-sub">${renewingSoon.length?'Action required':'All clear'}</div><div class="stat-ico">🔔</div></div>
+    </div>
+    <div class="charts-row">
+      <div class="card">
+        <div class="card-hdr"><div class="card-title">MRR by Customer</div><span class="text-sm muted">Active accounts only</span></div>
+        <canvas id="chartMRR" height="200"></canvas>
+      </div>
+      <div class="card">
+        <div class="card-hdr"><div class="card-title">Revenue Mix</div></div>
+        <canvas id="chartBilling" height="200"></canvas>
+      </div>
+    </div>
+    ${renewingSoon.length?`
+    <div class="card" style="margin-bottom:16px;border-color:var(--warning)">
+      <div class="card-hdr"><div class="card-title" style="color:var(--warning)">⚠ Upcoming Renewals</div><span class="text-sm muted">Within the next 60 days</span></div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Customer</th><th>Company</th><th>MRR</th><th>Billing</th><th>Renewal Date</th><th>Days Left</th><th>Actions</th></tr></thead>
+        <tbody>${renewingSoon.map(d=>{const days=daysUntil(d.contractEnd);return`<tr>
+          <td class="fw6">${d.title}</td>
+          <td><span class="lnk" onclick="openCompanyPanel('${d.companyId}')">${coName(d.companyId)}</span></td>
+          <td class="mrr-val">${fc(d.mrr)}/mo</td>
+          <td><span class="badge badge-blue">${d.billingCycle||'—'}</span></td>
+          <td class="renewal-warn">${fd(d.contractEnd)}</td>
+          <td><span class="badge badge-amber">${days}d</span></td>
+          <td><button class="btn btn-ghost btn-sm" onclick="openDealModal('${d.id}')">✏️ Edit</button></td>
+        </tr>`}).join('')}
+        </tbody>
+      </table></div>
+    </div>`:''}
+    <div class="card">
+      <div class="card-hdr">
+        <div class="card-title">Customer Accounts</div>
+        <span class="text-sm muted">${customers.length} total closed won</span>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Account / Deal</th><th>Company</th><th>Contact</th><th>MRR</th><th>ARR</th><th>Billing Cycle</th><th>Contract Start</th><th>Renewal Date</th><th>Days Left</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>${customers.length===0?`<tr><td colspan="11"><div class="empty"><div class="eico">💰</div><h3>No customers yet</h3><p>Close deals to see MRR here.</p></div></td></tr>`
+          :customers.map(d=>{
+            const days=daysUntil(d.contractEnd);
+            const co=coName(d.companyId),ct=ctName(d.contactId);
+            const mrr=effectiveMRR(d);
+            const st=d.mrrStatus||'active';
+            const stCfg=mrrStatus[st]||mrrStatus.active;
+            let daysHtml='—';
+            if(days!==null){
+              const cls=days<0?'renewal-overdue':days<=30?'renewal-warn':days<=60?'renewal-warn':'renewal-ok';
+              daysHtml=`<span class="${cls}">${days<0?'Overdue '+Math.abs(days)+'d':days+'d'}</span>`;
+            }
+            return`<tr>
+              <td class="fw6">${d.title}</td>
+              <td><span class="lnk" onclick="openCompanyPanel('${d.companyId}')">${co}</span></td>
+              <td><span class="lnk" onclick="openContactPanel('${d.contactId}')">${ct}</span></td>
+              <td class="mrr-val">${mrr?fc(mrr)+'/mo':'—'}</td>
+              <td class="muted">${mrr?fc(mrr*12)+'/yr':'—'}</td>
+              <td>${d.billingCycle?`<span class="badge badge-blue">${d.billingCycle}</span>`:'—'}</td>
+              <td class="muted">${fd(d.contractStart)}</td>
+              <td class="muted">${fd(d.contractEnd)}</td>
+              <td>${daysHtml}</td>
+              <td><span class="badge ${stCfg.cls}">${stCfg.label}</span></td>
+              <td><button class="btn btn-ghost btn-sm" onclick="openDealModal('${d.id}')">✏️ Edit</button></td>
+            </tr>`}).join('')}
+        </tbody>
+      </table></div>
+    </div>`;
+
+  // MRR by customer bar chart
+  const ctx1=$('chartMRR');
+  if(ctx1&&active.length){
+    CHARTS.mrr=new Chart(ctx1,{type:'bar',data:{
+      labels:active.map(d=>coName(d.companyId)),
+      datasets:[{label:'MRR',data:active.map(d=>effectiveMRR(d)),backgroundColor:'#10b98199',borderColor:'#10b981',borderWidth:2,borderRadius:4}]
+    },options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>'$'+(v/1000).toFixed(1)+'k'},grid:{color:'#f1f5f9'}},x:{grid:{display:false}}}}});
+  }
+
+  // Billing cycle donut
+  const ctx2=$('chartBilling');
+  if(ctx2){
+    const cycleGroups={monthly:0,quarterly:0,annual:0};
+    active.forEach(d=>{const k=(d.billingCycle||'monthly').toLowerCase();cycleGroups[k]=(cycleGroups[k]||0)+effectiveMRR(d)});
+    CHARTS.billing=new Chart(ctx2,{type:'doughnut',data:{
+      labels:['Monthly','Quarterly','Annual'],
+      datasets:[{data:[cycleGroups.monthly,cycleGroups.quarterly,cycleGroups.annual],backgroundColor:['#3b82f6','#f59e0b','#10b981'],borderWidth:0,hoverOffset:4}]
+    },options:{responsive:true,cutout:'65%',plugins:{legend:{position:'bottom',labels:{padding:16,font:{size:12}}}}}});
+  }
+}
+
+// ══════════════════════════════════════════════
+// CONTACTS
+// ══════════════════════════════════════════════
+function renderContacts(el,acts){
+  acts.innerHTML=`<button class="btn btn-primary" onclick="openContactModal()">+ Add Contact</button>`;
+  let contacts=DB.getContacts();
+  if(FILTERS.contactSearch){const q=FILTERS.contactSearch.toLowerCase();contacts=contacts.filter(c=>`${c.firstName} ${c.lastName} ${c.email||''} ${c.title||''}`.toLowerCase().includes(q)||coName(c.companyId).toLowerCase().includes(q))}
+  if(FILTERS.contactStatus)contacts=contacts.filter(c=>c.status===FILTERS.contactStatus);
+  const companies=DB.getCompanies();
+
+  el.innerHTML=`<div class="card">
+    <div class="toolbar">
+      <div class="search-box"><span>🔍</span><input placeholder="Search contacts…" value="${FILTERS.contactSearch}" oninput="FILTERS.contactSearch=this.value;render()"></div>
+      <select class="filter-sel" onchange="FILTERS.contactStatus=this.value;render()">
+        <option value="">All Statuses</option>
+        ${['Lead','Prospect','Customer','Churned'].map(s=>`<option ${FILTERS.contactStatus===s?'selected':''}>${s}</option>`).join('')}
+      </select>
+      <span class="muted text-sm ml-auto">${contacts.length} contact${contacts.length!==1?'s':''}</span>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Name</th><th>Title</th><th>Company</th><th>Email</th><th>Phone</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody>${contacts.length===0?`<tr><td colspan="7"><div class="empty"><div class="eico">👤</div><h3>No contacts found</h3><p>Add your first contact to get started.</p></div></td></tr>`
+        :contacts.map(c=>{const co=companies.find(x=>x.id===c.companyId);const bg=avatarBg(`${c.firstName} ${c.lastName}`);return`
+        <tr>
+          <td><div class="flex items-center gap-2"><div class="avatar" style="background:${bg}">${inits(c.firstName,c.lastName)}</div><div class="fw6">${c.firstName} ${c.lastName}</div></div></td>
+          <td class="muted">${c.title||'—'}</td>
+          <td>${co?`<span class="lnk" onclick="openCompanyPanel('${co.id}')">${co.name}</span>`:'—'}</td>
+          <td><a href="mailto:${c.email}" style="color:var(--accent);text-decoration:none">${c.email||'—'}</a></td>
+          <td class="muted">${c.phone||'—'}</td>
+          <td><span class="badge ${STATUS_BADGE[c.status]||'badge-gray'}">${c.status||'—'}</span></td>
+          <td><div class="flex gap-2"><button class="btn btn-ghost btn-sm" onclick="openContactModal('${c.id}')">✏️ Edit</button><button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="delContact('${c.id}')">🗑</button></div></td>
+        </tr>`}).join('')}
+      </tbody>
+    </table></div></div>`;
+}
+
+function openContactModal(id,defCompanyId){
+  const c=id?DB.getContacts().find(x=>x.id===id):null;
+  const defCoId=defCompanyId||c?.companyId||'';
+  const cos=DB.getCompanies();
+  $('modal-root').innerHTML=`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal">
+    <div class="modal-hdr"><h3>${c?'Edit':'Add'} Contact</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-row"><div class="form-group"><label>First Name *</label><input id="mf0" value="${c?.firstName||''}"></div><div class="form-group"><label>Last Name *</label><input id="mf1" value="${c?.lastName||''}"></div></div>
+      <div class="form-row"><div class="form-group"><label>Email</label><input id="mf2" type="email" value="${c?.email||''}"></div><div class="form-group"><label>Phone</label><input id="mf3" value="${c?.phone||''}"></div></div>
+      <div class="form-row">
+        <div class="form-group"><label>Job Title</label><input id="mf4" value="${c?.title||''}"></div>
+        <div class="form-group"><label>Status</label><select id="mf5">${['Lead','Prospect','Customer','Churned'].map(s=>`<option ${(c?.status||'Lead')===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      </div>
+      <div class="form-group"><label>Company</label><select id="mf6"><option value="">— No Company —</option>${cos.map(co=>`<option value="${co.id}" ${defCoId===co.id?'selected':''}>${co.name}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Notes</label><textarea id="mf7">${c?.notes||''}</textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveContact('${c?.id||''}')">Save Contact</button></div>
+  </div></div>`;
+}
+
+function saveContact(id){
+  const d={id:id||undefined,firstName:$('mf0').value.trim(),lastName:$('mf1').value.trim(),email:$('mf2').value.trim(),phone:$('mf3').value.trim(),title:$('mf4').value.trim(),status:$('mf5').value,companyId:$('mf6').value,notes:$('mf7').value.trim()};
+  if(!d.firstName||!d.lastName){toast('First and last name are required','error');return}
+  DB.saveContact(d);DB.log('contact',`${id?'Updated':'Added'} contact: ${d.firstName} ${d.lastName}`,'👤');
+  closeModal();toast(`Contact ${id?'updated':'added'}`);render();
+}
+
+function delContact(id){
+  const c=DB.getContacts().find(x=>x.id===id);
+  if(!confirm(`Delete ${c?.firstName} ${c?.lastName}?`))return;
+  DB.deleteContact(id);toast('Contact deleted');render();
+}
+
+// ══════════════════════════════════════════════
+// COMPANIES
+// ══════════════════════════════════════════════
+function renderCompanies(el,acts){
+  acts.innerHTML=`<button class="btn btn-primary" onclick="openCompanyModal()">+ Add Company</button>`;
+  let cos=DB.getCompanies();
+  if(FILTERS.companySearch){const q=FILTERS.companySearch.toLowerCase();cos=cos.filter(c=>c.name.toLowerCase().includes(q)||c.industry?.toLowerCase().includes(q))}
+  const contacts=DB.getContacts(),deals=DB.getDeals();
+
+  el.innerHTML=`<div class="card">
+    <div class="toolbar">
+      <div class="search-box"><span>🔍</span><input placeholder="Search companies…" value="${FILTERS.companySearch}" oninput="FILTERS.companySearch=this.value;render()"></div>
+      <span class="muted text-sm ml-auto">${cos.length} compan${cos.length!==1?'ies':'y'}</span>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Company</th><th>Industry</th><th>Size</th><th>Licenses</th><th>Contacts</th><th>Open Deals</th><th>Pipeline Value</th><th>Actions</th></tr></thead>
+      <tbody>${cos.length===0?`<tr><td colspan="8"><div class="empty"><div class="eico">🏢</div><h3>No companies yet</h3></div></td></tr>`
+        :cos.map(co=>{
+          const coCts=contacts.filter(c=>c.companyId===co.id);
+          const coDls=deals.filter(d=>d.companyId===co.id&&!['Closed Won','Closed Lost'].includes(d.stage));
+          const pv=coDls.reduce((s,d)=>s+Number(d.value||0),0);
+          return`<tr>
+            <td><div class="flex items-center gap-2" onclick="openCompanyPanel('${co.id}')" style="cursor:pointer"><div class="avatar" style="background:${avatarBg(co.name)};border-radius:6px">${co.name[0].toUpperCase()}</div><div><div class="fw6 lnk">${co.name}</div>${co.website?`<div class="text-sm muted">${co.website}</div>`:''}</div></div></td>
+            <td>${co.industry?`<span class="badge badge-purple">${co.industry}</span>`:'—'}</td>
+            <td class="muted">${co.size||'—'}</td>
+            <td>${co.licenseCount?`<span class="badge badge-blue">🪪 ${co.licenseCount}</span>`:'—'}</td>
+            <td><span class="badge badge-blue">${coCts.length}</span></td>
+            <td><span class="badge badge-amber">${coDls.length}</span></td>
+            <td class="fw6" style="color:var(--success)">${pv>0?fc(pv):'—'}</td>
+            <td><div class="flex gap-2"><button class="btn btn-ghost btn-sm" onclick="openCompanyModal('${co.id}')">✏️ Edit</button><button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="delCompany('${co.id}')">🗑</button></div></td>
+          </tr>`}).join('')}
+      </tbody>
+    </table></div></div>`;
+}
+
+function openCompanyModal(id){
+  const co=id?DB.getCompanies().find(x=>x.id===id):null;
+  $('modal-root').innerHTML=`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal">
+    <div class="modal-hdr"><h3>${co?'Edit':'Add'} Company</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Company Name *</label><input id="cf0" value="${co?.name||''}"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Industry</label><select id="cf1"><option value="">Select…</option>${['Cultivation','Manufacturing','Vertical'].map(i=>`<option ${co?.industry===i?'selected':''}>${i}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Size</label><select id="cf2"><option value="">Select…</option>${['1-10','10-50','50-100','100-500','500+'].map(s=>`<option ${co?.size===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>License Count</label><input id="cf6" type="number" min="0" value="${co?.licenseCount||''}" placeholder="0"></div>
+        <div class="form-group"><label>Website</label><input id="cf3" value="${co?.website||''}"></div>
+      </div>
+      <div class="form-row"><div class="form-group"><label>Address</label><input id="cf4" value="${co?.address||''}"></div><div class="form-group"></div></div>
+      <div class="form-group"><label>Notes</label><textarea id="cf5">${co?.notes||''}</textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveCompany('${co?.id||''}')">Save Company</button></div>
+  </div></div>`;
+}
+
+function saveCompany(id){
+  const d={id:id||undefined,name:$('cf0').value.trim(),industry:$('cf1').value,size:$('cf2').value,licenseCount:Number($('cf6').value)||0,website:$('cf3').value.trim(),address:$('cf4').value.trim(),notes:$('cf5').value.trim()};
+  if(!d.name){toast('Company name is required','error');return}
+  DB.saveCompany(d);DB.log('company',`${id?'Updated':'Added'} company: ${d.name}`,'🏢');
+  closeModal();toast(`Company ${id?'updated':'added'}`);render();
+}
+
+function delCompany(id){
+  const co=DB.getCompanies().find(x=>x.id===id);
+  if(!confirm(`Delete ${co?.name}?`))return;
+  DB.deleteCompany(id);toast('Company deleted');render();
+}
+
+// ══════════════════════════════════════════════
+// PIPELINE
+// ══════════════════════════════════════════════
+function renderPipeline(el,acts){
+  acts.innerHTML=`
+    <div class="view-toggle">
+      <button class="vt-btn ${PIPE_VIEW==='kanban'?'active':''}" onclick="PIPE_VIEW='kanban';render()">⬛ Kanban</button>
+      <button class="vt-btn ${PIPE_VIEW==='list'?'active':''}" onclick="PIPE_VIEW='list';render()">☰ List</button>
+    </div>
+    <button class="btn btn-primary" onclick="openDealModal()">+ Add Deal</button>`;
+  PIPE_VIEW==='kanban'?renderKanban(el):renderDealList(el);
+}
+
+function renderKanban(el){
+  const deals=DB.getDeals();
+  const stages=Object.keys(STAGES);
+  const pv=deals.filter(d=>!['Closed Won','Closed Lost'].includes(d.stage)).reduce((s,d)=>s+Number(d.value||0),0);
+  el.innerHTML=`
+    <div class="flex items-center gap-3" style="margin-bottom:16px">
+      <span class="muted text-sm">Total pipeline: <strong style="color:var(--text)">${fc(pv)}</strong></span>
+      <div class="search-box" style="max-width:220px"><span>🔍</span><input placeholder="Search deals…" value="${FILTERS.dealSearch}" oninput="FILTERS.dealSearch=this.value;renderKanban(document.getElementById('content'))"></div>
+    </div>
+    <div class="kanban">
+      ${stages.map(s=>{
+        let sd=deals.filter(d=>d.stage===s);
+        if(FILTERS.dealSearch){const q=FILTERS.dealSearch.toLowerCase();sd=sd.filter(d=>d.title.toLowerCase().includes(q)||coName(d.companyId).toLowerCase().includes(q))}
+        const sv=sd.reduce((a,d)=>a+Number(d.value||0),0);
+        return`<div class="k-col">
+          <div class="k-col-hdr">
+            <div class="k-col-title"><div class="k-dot" style="background:${STAGES[s].color}"></div>${s}</div>
+            <div class="flex items-center gap-2"><span class="text-sm muted">${fc(sv)}</span><span class="k-count">${sd.length}</span></div>
+          </div>
+          <div class="k-col-body">
+            ${sd.map(d=>`<div class="deal-card" onclick="openDealModal('${d.id}')">
+              <div class="deal-title">${d.title}</div>
+              <div class="deal-co">🏢 <span class="lnk" onclick="event.stopPropagation();openCompanyPanel('${d.companyId}')">${coName(d.companyId)}</span> · <span class="lnk" onclick="event.stopPropagation();openContactPanel('${d.contactId}')">${ctName(d.contactId)}</span></div>
+              <div class="deal-foot"><div class="deal-val">${fc(d.value)}</div><div class="deal-dt">${d.closeDate?fd(d.closeDate):''}</div></div>
+              <div style="margin-top:8px">
+                <div class="flex items-center" style="justify-content:space-between;margin-bottom:4px"><span class="text-sm muted">Probability</span><span class="text-sm fw6">${d.probability||0}%</span></div>
+                <div class="prog-bar"><div class="prog-fill" style="width:${d.probability||0}%;background:${STAGES[s].color}"></div></div>
+              </div>
+            </div>`).join('')}
+            <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;border:1px dashed var(--border)" onclick="openDealModal(null,'${s}')">+ Add deal</button>
+          </div>
+        </div>`}).join('')}
+    </div>`;
+}
+
+function renderDealList(el){
+  let deals=DB.getDeals();
+  if(FILTERS.dealSearch){const q=FILTERS.dealSearch.toLowerCase();deals=deals.filter(d=>d.title.toLowerCase().includes(q)||coName(d.companyId).toLowerCase().includes(q))}
+  if(FILTERS.dealStage)deals=deals.filter(d=>d.stage===FILTERS.dealStage);
+  el.innerHTML=`<div class="card">
+    <div class="toolbar">
+      <div class="search-box"><span>🔍</span><input placeholder="Search deals…" value="${FILTERS.dealSearch}" oninput="FILTERS.dealSearch=this.value;render()"></div>
+      <select class="filter-sel" onchange="FILTERS.dealStage=this.value;render()"><option value="">All Stages</option>${Object.keys(STAGES).map(s=>`<option ${FILTERS.dealStage===s?'selected':''}>${s}</option>`).join('')}</select>
+      <span class="muted text-sm ml-auto">${deals.length} deal${deals.length!==1?'s':''}</span>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Deal Name</th><th>Company</th><th>Contact</th><th>Value</th><th>Stage</th><th>Probability</th><th>Close Date</th><th>Actions</th></tr></thead>
+      <tbody>${deals.length===0?`<tr><td colspan="8"><div class="empty"><div class="eico">🎯</div><h3>No deals found</h3></div></td></tr>`
+        :deals.map(d=>`<tr>
+          <td class="fw6">${d.title}</td>
+          <td><span class="lnk" onclick="openCompanyPanel('${d.companyId}')">${coName(d.companyId)}</span></td>
+          <td><span class="lnk" onclick="openContactPanel('${d.contactId}')">${ctName(d.contactId)}</span></td>
+          <td class="fw6" style="color:var(--success)">${fc(d.value)}</td>
+          <td><span class="badge ${STAGES[d.stage]?.badge||'badge-gray'}">${d.stage}</span></td>
+          <td><div class="flex items-center gap-2"><div class="prog-bar" style="width:60px"><div class="prog-fill" style="width:${d.probability||0}%;background:${STAGES[d.stage]?.color}"></div></div><span class="text-sm">${d.probability||0}%</span></div></td>
+          <td class="muted">${fd(d.closeDate)}</td>
+          <td><div class="flex gap-2"><button class="btn btn-ghost btn-sm" onclick="openDealModal('${d.id}')">✏️ Edit</button><button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="delDeal('${d.id}')">🗑</button></div></td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div></div>`;
+}
+
+function openDealModal(id,defStage,defCompanyId){
+  const d=id?DB.getDeals().find(x=>x.id===id):null;
+  const defCoId=defCompanyId||d?.companyId||'';
+  const contacts=DB.getContacts(),cos=DB.getCompanies();
+  $('modal-root').innerHTML=`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal">
+    <div class="modal-hdr">
+      <h3>${d?'Edit':'Add'} Deal</h3>
+      ${d?`<button class="btn btn-danger btn-sm" onclick="delDeal('${d.id}',true)">Delete</button>`:''}
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Deal Title *</label><input id="df0" value="${d?.title||''}"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Company</label><select id="df1"><option value="">— None —</option>${cos.map(co=>`<option value="${co.id}" ${defCoId===co.id?'selected':''}>${co.name}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Contact</label><select id="df2"><option value="">— None —</option>${contacts.map(c=>`<option value="${c.id}" ${d?.contactId===c.id?'selected':''}>${c.firstName} ${c.lastName}</option>`).join('')}</select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Value ($)</label><input id="df3" type="number" value="${d?.value||''}"></div>
+        <div class="form-group"><label>Stage</label><select id="df4">${Object.keys(STAGES).map(s=>`<option ${(d?.stage||defStage||'Lead')===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Probability (%)</label><input id="df5" type="number" min="0" max="100" value="${d?.probability??''}"></div>
+        <div class="form-group"><label>Expected Close Date</label><input id="df6" type="date" value="${d?.closeDate||''}"></div>
+      </div>
+      <div class="form-group"><label>Notes</label><textarea id="df7">${d?.notes||''}</textarea></div>
+      <div id="mrr-fields" style="display:${(d?.stage||defStage||'Lead')==='Closed Won'?'block':'none'}">
+        <div id="mrr-fields-lbl">💰 Customer Billing &amp; MRR</div>
+        <div class="form-row">
+          <div class="form-group"><label>Monthly Recurring Revenue ($)</label><input id="df8" type="number" value="${d?.mrr||''}" placeholder="0"></div>
+          <div class="form-group"><label>Billing Cycle</label><select id="df9"><option value="">Select…</option>${['monthly','quarterly','annual'].map(b=>`<option value="${b}" ${(d?.billingCycle||'')=== b?'selected':''}>${b.charAt(0).toUpperCase()+b.slice(1)}</option>`).join('')}</select></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Contract Start Date</label><input id="df10" type="date" value="${d?.contractStart||''}"></div>
+          <div class="form-group"><label>Contract End / Renewal Date</label><input id="df11" type="date" value="${d?.contractEnd||''}"></div>
+        </div>
+        <div class="form-group"><label>MRR Status</label><select id="df12"><option value="">Select…</option>${['active','paused','churned'].map(s=>`<option value="${s}" ${(d?.mrrStatus||'active')===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}</select></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveDeal('${d?.id||''}')">Save Deal</button></div>
+  </div></div>`;
+  // Show/hide MRR fields based on stage
+  const dfStage=document.getElementById('df4');
+  if(dfStage) dfStage.addEventListener('change',function(){
+    const mf=document.getElementById('mrr-fields');
+    if(mf) mf.style.display=this.value==='Closed Won'?'block':'none';
+  });
+}
+
+function saveDeal(id){
+  const stage=$('df4').value;
+  const d={
+    id:id||undefined,
+    title:$('df0').value.trim(),
+    companyId:$('df1').value,
+    contactId:$('df2').value,
+    value:Number($('df3').value)||0,
+    stage,
+    probability:Number($('df5').value)||0,
+    closeDate:$('df6').value,
+    notes:$('df7').value.trim(),
+    mrr:stage==='Closed Won'?(Number($('df8')?.value)||0):undefined,
+    billingCycle:stage==='Closed Won'?($('df9')?.value||undefined):undefined,
+    contractStart:stage==='Closed Won'?($('df10')?.value||undefined):undefined,
+    contractEnd:stage==='Closed Won'?($('df11')?.value||undefined):undefined,
+    mrrStatus:stage==='Closed Won'?($('df12')?.value||'active'):undefined,
+  };
+  if(!d.title){toast('Deal title is required','error');return}
+  DB.saveDeal(d);DB.log('deal',`${id?'Updated':'Added'} deal: ${d.title} (${fc(d.value)})`,'🎯');
+  closeModal();toast(`Deal ${id?'updated':'added'}`);render();
+}
+
+function delDeal(id,fromModal){
+  const d=DB.getDeals().find(x=>x.id===id);
+  if(!confirm(`Delete "${d?.title}"?`))return;
+  DB.deleteDeal(id);if(fromModal)closeModal();toast('Deal deleted');render();
+}
+
+// ══════════════════════════════════════════════
+// TASKS
+// ══════════════════════════════════════════════
+function renderTasks(el,acts){
+  acts.innerHTML=`<button class="btn btn-primary" onclick="openTaskModal()">+ Add Task</button>`;
+  let tasks=DB.getTasks();
+  const all=tasks,open=tasks.filter(t=>t.status!=='completed');
+  if(FILTERS.taskTab==='today')tasks=tasks.filter(t=>t.status!=='completed'&&isToday(t.dueDate));
+  else if(FILTERS.taskTab==='overdue')tasks=tasks.filter(t=>t.status!=='completed'&&isOverdue(t.dueDate));
+  else if(FILTERS.taskTab==='completed')tasks=tasks.filter(t=>t.status==='completed');
+  else if(FILTERS.taskTab==='open')tasks=open;
+  if(FILTERS.taskSearch){const q=FILTERS.taskSearch.toLowerCase();tasks=tasks.filter(t=>t.title.toLowerCase().includes(q))}
+  tasks.sort((a,b)=>{if(a.status==='completed'&&b.status!=='completed')return 1;if(b.status==='completed'&&a.status!=='completed')return-1;if(!a.dueDate)return 1;if(!b.dueDate)return-1;return new Date(a.dueDate)-new Date(b.dueDate)});
+
+  el.innerHTML=`<div class="card">
+    <div class="tabs">
+      ${[['all',`All (${all.length})`],['open',`Open (${open.length})`],['today',`Today (${all.filter(t=>t.status!=='completed'&&isToday(t.dueDate)).length})`],['overdue',`Overdue (${all.filter(t=>t.status!=='completed'&&isOverdue(t.dueDate)).length})`],['completed',`Completed (${all.filter(t=>t.status==='completed').length})`]].map(([v,label])=>`<div class="tab ${FILTERS.taskTab===v?'active':''}" onclick="FILTERS.taskTab='${v}';render()">${label}</div>`).join('')}
+    </div>
+    <div class="toolbar">
+      <div class="search-box"><span>🔍</span><input placeholder="Search tasks…" value="${FILTERS.taskSearch}" oninput="FILTERS.taskSearch=this.value;render()"></div>
+      <span class="muted text-sm ml-auto">${tasks.length} task${tasks.length!==1?'s':''}</span>
+    </div>
+    <div>${tasks.length===0?`<div class="empty"><div class="eico">✅</div><h3>No tasks here</h3><p>All clear or try a different filter.</p></div>`
+      :tasks.map(t=>{
+        const contact=t.contactId?DB.getContacts().find(x=>x.id===t.contactId):null;
+        const deal=t.dealId?DB.getDeals().find(x=>x.id===t.dealId):null;
+        const done=t.status==='completed',ov=!done&&isOverdue(t.dueDate),tod=!done&&isToday(t.dueDate);
+        return`<div class="task-item">
+          <div class="task-chk ${done?'done':''}" onclick="toggleTask('${t.id}')"></div>
+          <div class="task-body">
+            <div class="task-ttl ${done?'done':''}">${t.title}</div>
+            <div class="task-meta">
+              ${t.dueDate?`<span style="color:${ov?'var(--danger)':tod?'var(--warning)':'var(--muted)'}">${ov?'⚠ Overdue · ':tod?'📅 Today · ':(fd(t.dueDate)+' · ')}</span>`:''}
+              ${contact?`<span class="lnk" onclick="openContactPanel('${contact.id}')">👤 ${contact.firstName} ${contact.lastName}</span>`:''}
+              ${deal?`<span class="lnk" onclick="openDealModal('${deal.id}')">🎯 ${deal.title}</span>`:''}
+              <span class="badge ${PRI_BADGE[t.priority]||'badge-gray'}">${t.priority}</span>
+            </div>
+          </div>
+          <div class="task-acts">
+            <button class="btn btn-ghost btn-sm btn-icon" onclick="openTaskModal('${t.id}')" title="Edit">✏️</button>
+            <button class="btn btn-ghost btn-sm btn-icon" style="color:var(--danger)" onclick="delTask('${t.id}')" title="Delete">🗑</button>
+          </div>
+        </div>`}).join('')}
+    </div></div>`;
+}
+
+function toggleTask(id){
+  const t=DB.getTasks().find(x=>x.id===id);if(!t)return;
+  t.status=t.status==='completed'?'open':'completed';
+  DB.saveTask(t);if(t.status==='completed'){DB.log('task',`Completed: ${t.title}`,'✅');toast('Task marked complete')}
+  render();
+}
+
+function openTaskModal(id,defContactId){
+  const t=id?DB.getTasks().find(x=>x.id===id):null;
+  const defCtId=defContactId||t?.contactId||'';
+  const contacts=DB.getContacts(),deals=DB.getDeals();
+  $('modal-root').innerHTML=`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal">
+    <div class="modal-hdr"><h3>${t?'Edit':'Add'} Task</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Task Title *</label><input id="tf0" value="${t?.title||''}"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Due Date</label><input id="tf1" type="date" value="${t?.dueDate||''}"></div>
+        <div class="form-group"><label>Priority</label><select id="tf2">${['high','medium','low'].map(p=>`<option ${(t?.priority||'medium')===p?'selected':''}>${p}</option>`).join('')}</select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Linked Contact</label><select id="tf3"><option value="">— None —</option>${contacts.map(c=>`<option value="${c.id}" ${defCtId===c.id?'selected':''}>${c.firstName} ${c.lastName}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Linked Deal</label><select id="tf4"><option value="">— None —</option>${deals.map(d=>`<option value="${d.id}" ${t?.dealId===d.id?'selected':''}>${d.title}</option>`).join('')}</select></div>
+      </div>
+      <div class="form-group"><label>Notes</label><textarea id="tf5">${t?.notes||''}</textarea></div>
+    </div>
+    <div class="modal-footer">
+      ${t?`<button class="btn btn-secondary" onclick="delTask('${t.id}',true)">Delete</button>`:''}
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTask('${t?.id||''}')">Save Task</button>
+    </div>
+  </div></div>`;
+}
+
+function saveTask(id){
+  const d={id:id||undefined,title:$('tf0').value.trim(),dueDate:$('tf1').value,priority:$('tf2').value,contactId:$('tf3').value,dealId:$('tf4').value,notes:$('tf5').value.trim(),status:id?(DB.getTasks().find(x=>x.id===id)?.status||'open'):'open'};
+  if(!d.title){toast('Task title is required','error');return}
+  DB.saveTask(d);DB.log('task',`${id?'Updated':'Added'} task: ${d.title}`,'📌');
+  closeModal();toast(`Task ${id?'updated':'added'}`);render();
+}
+
+function delTask(id,fromModal){
+  const t=DB.getTasks().find(x=>x.id===id);
+  if(!confirm(`Delete "${t?.title}"?`))return;
+  DB.deleteTask(id);if(fromModal)closeModal();toast('Task deleted');render();
+}
+
+// ══════════════════════════════════════════════
+// EXPORT
+// ══════════════════════════════════════════════
+function exportJSON(){
+  const blob=new Blob([JSON.stringify({contacts:DB.getContacts(),companies:DB.getCompanies(),deals:DB.getDeals(),tasks:DB.getTasks(),exportedAt:new Date().toISOString()},null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`crm-export-${new Date().toISOString().split('T')[0]}.json`;a.click();
+  toast('Data exported');
+}
+
+// ══════════════════════════════════════════════
+// GOOGLE SHEETS SYNC
+// ══════════════════════════════════════════════
+const SYNC = {
+  get url(){ return localStorage.getItem('crm_gs_url')||'' },
+
+  setStatus(s, msg){
+    const dot=$('sync-dot'), lbl=$('sync-label');
+    if(!dot||!lbl) return;
+    dot.className = s;
+    const labels={idle:'Local only', syncing:'Syncing…', ok:'Synced', error:'Sync error'};
+    lbl.textContent = msg || labels[s] || s;
+  },
+
+  // All requests go through GET to avoid CORS issues with Google Apps Script
+  async _req(params){
+    const qs = Object.entries(params)
+      .map(([k,v]) => k + '=' + encodeURIComponent(v))
+      .join('&');
+    const r = await fetch(this.url + '?' + qs);
+    try { return await r.json(); } catch(e) { return {ok:true}; }
+  },
+
+  // Push a single record (upsert) or a full array (clear + chunked append)
+  async push(type, data){
+    if(!this.url) return;
+    this.setStatus('syncing');
+    try {
+      if(Array.isArray(data)){
+        // Full collection upload: clear sheet then append in chunks of 5
+        await this._req({action:'clear', type});
+        for(let i=0; i<data.length; i+=5){
+          await this._req({action:'append', type, payload: JSON.stringify(data.slice(i,i+5))});
+        }
+      } else {
+        // Single record upsert
+        await this._req({action:'save', type, payload: JSON.stringify(data)});
+      }
+      this.setStatus('ok');
+    } catch(e){
+      console.warn('Sync push failed', e);
+      this.setStatus('error');
+    }
+  },
+
+  // Delete a single record by id
+  async pushDelete(type, id){
+    if(!this.url) return;
+    this.setStatus('syncing');
+    try {
+      await this._req({action:'delete', type, payload: JSON.stringify({id})});
+      this.setStatus('ok');
+    } catch(e){
+      console.warn('Sync delete failed', e);
+      this.setStatus('error');
+    }
+  },
+
+  async pull(){
+    if(!this.url){ this.setStatus('idle'); return false; }
+    this.setStatus('syncing');
+    try {
+      const types=[
+        {key:'contacts', store:'crm_c'},
+        {key:'companies', store:'crm_co'},
+        {key:'deals',    store:'crm_d'},
+        {key:'tasks',    store:'crm_t'},
+        {key:'activity', store:'crm_act'},
+      ];
+      const results = await Promise.all(
+        types.map(t => this._req({action:'read', type:t.key}))
+      );
+      let hasData = false;
+      types.forEach((t,i)=>{
+        if(Array.isArray(results[i])){
+          localStorage.setItem(t.store, JSON.stringify(results[i]));
+          if(results[i].length) hasData = true;
+        }
+      });
+      this.setStatus('ok');
+      return hasData;
+    } catch(e){
+      console.warn('Sync pull failed', e);
+      this.setStatus('error');
+      return false;
+    }
+  },
+
+  async uploadAll(){
+    if(!this.url){ toast('No Google Sheets URL configured','error'); return; }
+    const types=[
+      {key:'contacts', store:'crm_c'},
+      {key:'companies', store:'crm_co'},
+      {key:'deals',    store:'crm_d'},
+      {key:'tasks',    store:'crm_t'},
+      {key:'activity', store:'crm_act'},
+    ];
+    this.setStatus('syncing','Uploading…');
+    for(const t of types){
+      const data = JSON.parse(localStorage.getItem(t.store)||'[]');
+      await this.push(t.key, data);
+    }
+    this.setStatus('ok');
+    toast('All data uploaded to Google Sheets ✓');
+  }
+};
+
+// Wrap DB write methods so every save/delete auto-syncs
+{
+  const SAVE_TYPE={saveContact:'contacts',saveCompany:'companies',saveDeal:'deals',saveTask:'tasks'};
+  const DEL_TYPE={deleteContact:'contacts',deleteCompany:'companies',deleteDeal:'deals',deleteTask:'tasks'};
+
+  Object.keys(SAVE_TYPE).forEach(m=>{
+    const orig=DB[m].bind(DB);
+    // Push just the single saved record (upsert on Sheets side)
+    DB[m]=function(d){ const res=orig(d); SYNC.push(SAVE_TYPE[m], res); return res; };
+  });
+  Object.keys(DEL_TYPE).forEach(m=>{
+    const orig=DB[m].bind(DB);
+    // Push a targeted delete by id — no need to re-upload entire collection
+    DB[m]=function(id){ orig(id); SYNC.pushDelete(DEL_TYPE[m], id); };
+  });
+  const origLog=DB.log.bind(DB);
+  DB.log=function(type,text,icon){ origLog(type,text,icon); SYNC.push('activity',DB.getActivity()); };
+}
+
+// ── Sync Settings Modal ───────────────────────
+function showSyncSettings(){
+  const url=SYNC.url;
+  $('modal-root').innerHTML=`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal">
+    <div class="modal-hdr"><h3>☁️ Google Sheets Sync</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+    ${url ? `
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px;margin-bottom:16px">
+        <div style="font-weight:600;color:var(--success);margin-bottom:6px">🟢 Connected to Google Sheets</div>
+        <div style="font-size:11px;color:var(--muted);word-break:break-all">${url}</div>
+      </div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:20px">Data syncs automatically on every save. Open the CRM on any device using the same URL to see shared data.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-secondary" onclick="SYNC.uploadAll();closeModal()">⬆ Upload local data to Sheets</button>
+        <button class="btn btn-secondary" onclick="SYNC.pull().then(()=>{render();closeModal();toast('Refreshed from Google Sheets')})">⬇ Pull latest from Sheets</button>
+        <button class="btn btn-ghost" style="color:var(--danger)" onclick="if(confirm('Disconnect? Your local data stays.')){localStorage.removeItem('crm_gs_url');SYNC.setStatus('idle');closeModal();toast('Disconnected')}">Disconnect</button>
+      </div>
+    ` : `
+      <p style="font-size:13px;margin-bottom:16px">Connect to Google Sheets to make your CRM data shareable and accessible from any device.</p>
+      <div style="background:var(--bg);border-radius:8px;padding:16px;margin-bottom:20px;font-size:13px">
+        <div style="font-weight:600;margin-bottom:10px">One-time setup (~3 min):</div>
+        <ol style="color:var(--muted);line-height:2;padding-left:20px">
+          <li>Open <strong>Google Sheets</strong> and create a new blank spreadsheet</li>
+          <li>Click <strong>Extensions → Apps Script</strong></li>
+          <li>Delete all code and paste in the contents of <strong>crm-backend.txt</strong></li>
+          <li>Click <strong>Deploy → New Deployment</strong></li>
+          <li>Type: <strong>Web App</strong> · Execute as: <strong>Me</strong> · Access: <strong>Anyone</strong></li>
+          <li>Click Deploy and copy the URL shown</li>
+        </ol>
+      </div>
+      <div class="form-group">
+        <label>Paste your Apps Script deployment URL</label>
+        <input id="gs-url-input" placeholder="https://script.google.com/macros/s/…/exec" style="font-size:12px">
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="connectGS()">Connect &amp; Upload My Data</button>
+        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      </div>
+    `}
+    </div>
+  </div></div>`;
+}
+
+async function connectGS(){
+  const url=($('gs-url-input')||{}).value?.trim();
+  if(!url||!url.includes('script.google.com')){ toast('Please enter a valid Apps Script URL','error'); return; }
+
+  // Test the connection — any JSON response (even empty array) means it's reachable
+  toast('Testing connection…');
+  try {
+    const r = await fetch(url+'?action=read&type=contacts');
+    if(!r.ok && r.status !== 302) throw new Error('HTTP '+r.status);
+    // Try to parse JSON — if we get HTML back it means auth/access is blocking us
+    const text = await r.text();
+    if(text.trim().startsWith('<')) throw new Error('Got HTML — check "Who has access" is set to Anyone in Apps Script deploy settings');
+  } catch(e){
+    toast('Could not reach that URL: ' + e.message, 'error');
+    console.warn('GS connect test failed', e);
+    return;
+  }
+
+  localStorage.setItem('crm_gs_url', url);
+  closeModal();
+  toast('Connected! Uploading your data to Google Sheets…');
+  await SYNC.uploadAll();
+  render();
+}
+
+// ══════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════
+
+// Bump this version string any time seed data changes.
+// If localStorage has an older version, data is wiped and reseeded.
+const DATA_VERSION = '2025-customers-v1';
+
+function migrateIfNeeded(){
+  const stored = localStorage.getItem('crm_data_version');
+  if(stored !== DATA_VERSION){
+    // Clear old data and reseed with current customer set
+    ['crm_c','crm_co','crm_d','crm_t','crm_act'].forEach(k => localStorage.removeItem(k));
+    localStorage.setItem('crm_data_version', DATA_VERSION);
+    DB.seed();
+    return true;
+  }
+  return false;
+}
+
+async function init(){
+  const migrated = migrateIfNeeded();
+  if(!migrated && SYNC.url){
+    await SYNC.pull();
+  }
+  if(!migrated && !localStorage.getItem('crm_data_version')){
+    DB.seed();
+    localStorage.setItem('crm_data_version', DATA_VERSION);
+  }
+  render();
+}
+init();
+</script>
+</body>
+</html>
