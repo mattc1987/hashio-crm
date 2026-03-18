@@ -281,6 +281,7 @@
       <div id="sync-dot"></div>
       <span id="sync-label">Local only</span>
     </div>
+    <button id="refresh-btn" onclick="syncRefresh()" title="Pull latest data from Google Sheets" style="display:none;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">🔄 Refresh</button>
     <div id="topbar-actions"></div>
   </div>
   <div id="content"></div>
@@ -1624,8 +1625,9 @@ const SYNC = {
     const dot=$('sync-dot'), lbl=$('sync-label');
     if(!dot||!lbl) return;
     dot.className = s;
-    const labels={idle:'Local only', syncing:'Syncing…', ok:'Synced', error:'Sync error'};
+    const labels={idle:'Local only', syncing:'Syncing…', ok:'Synced ✓', error:'Sync error'};
     lbl.textContent = msg || labels[s] || s;
+    updateRefreshBtn();
   },
 
   // All requests go through GET to avoid CORS issues with Google Apps Script
@@ -1682,6 +1684,7 @@ const SYNC = {
         {key:'deals',    store:'crm_d'},
         {key:'tasks',    store:'crm_t'},
         {key:'activity', store:'crm_act'},
+        {key:'invoices', store:'crm_inv'},
       ];
       const results = await Promise.all(
         types.map(t => this._req({action:'read', type:t.key}))
@@ -1710,6 +1713,7 @@ const SYNC = {
       {key:'deals',    store:'crm_d'},
       {key:'tasks',    store:'crm_t'},
       {key:'activity', store:'crm_act'},
+      {key:'invoices', store:'crm_inv'},
     ];
     this.setStatus('syncing','Uploading…');
     for(const t of types){
@@ -1721,23 +1725,54 @@ const SYNC = {
   }
 };
 
-// Wrap DB write methods so every save/delete auto-syncs
+// Wrap DB write methods so every save/delete auto-syncs the FULL collection to Sheets
 {
-  const SAVE_TYPE={saveContact:'contacts',saveCompany:'companies',saveDeal:'deals',saveTask:'tasks',saveInvoice:'invoices'};
-  const DEL_TYPE={deleteContact:'contacts',deleteCompany:'companies',deleteDeal:'deals',deleteTask:'tasks',deleteInvoice:'invoices'};
+  // Maps save method → [type key, getter method] for full-collection push
+  const SAVE_TYPE={
+    saveContact:  ['contacts',  'getContacts'],
+    saveCompany:  ['companies', 'getCompanies'],
+    saveDeal:     ['deals',     'getDeals'],
+    saveTask:     ['tasks',     'getTasks'],
+    saveInvoice:  ['invoices',  'getInvoices'],
+  };
+  const DEL_TYPE={
+    deleteContact:  ['contacts',  'getContacts'],
+    deleteCompany:  ['companies', 'getCompanies'],
+    deleteDeal:     ['deals',     'getDeals'],
+    deleteTask:     ['tasks',     'getTasks'],
+    deleteInvoice:  ['invoices',  'getInvoices'],
+  };
 
   Object.keys(SAVE_TYPE).forEach(m=>{
     const orig=DB[m].bind(DB);
-    // Push just the single saved record (upsert on Sheets side)
-    DB[m]=function(d){ const res=orig(d); SYNC.push(SAVE_TYPE[m], res); return res; };
+    const [type, getter]=SAVE_TYPE[m];
+    // Push the full collection after every save — ensures Sheets always has complete data
+    DB[m]=function(d){ const res=orig(d); SYNC.push(type, DB[getter]()); return res; };
   });
   Object.keys(DEL_TYPE).forEach(m=>{
     const orig=DB[m].bind(DB);
-    // Push a targeted delete by id — no need to re-upload entire collection
-    DB[m]=function(id){ orig(id); SYNC.pushDelete(DEL_TYPE[m], id); };
+    const [type, getter]=DEL_TYPE[m];
+    // Push full collection after delete too
+    DB[m]=function(id){ orig(id); SYNC.push(type, DB[getter]()); };
   });
   const origLog=DB.log.bind(DB);
   DB.log=function(type,text,icon){ origLog(type,text,icon); SYNC.push('activity',DB.getActivity()); };
+}
+
+// ── Sync refresh ─────────────────────────────
+async function syncRefresh(){
+  const btn = document.getElementById('refresh-btn');
+  if(btn){ btn.textContent='⏳ Refreshing…'; btn.disabled=true; }
+  await SYNC.pull();
+  render();
+  if(btn){ btn.textContent='🔄 Refresh'; btn.disabled=false; }
+  toast('Refreshed from Google Sheets ✓');
+}
+
+// Show/hide the Refresh button based on whether Sheets is connected
+function updateRefreshBtn(){
+  const btn=document.getElementById('refresh-btn');
+  if(btn) btn.style.display = SYNC.url ? 'inline-block' : 'none';
 }
 
 // ── Sync Settings Modal ───────────────────────
@@ -1831,24 +1866,18 @@ function migrateIfNeeded(){
 async function init(){
   const migrated = migrateIfNeeded();
 
-  if(!migrated && SYNC.url){
-    // Only pull from Sheets if this browser has no local data yet (fresh device/browser).
-    // After that, local data is authoritative — pushes keep Sheets up to date in the background.
-    // Use the manual "Pull latest from Sheets" button to force a refresh.
-    const hasData = ['crm_c','crm_co','crm_d','crm_t'].some(k=>{
-      try{ return JSON.parse(localStorage.getItem(k)||'[]').length>0; } catch{ return false; }
-    });
-    if(!hasData){
-      await SYNC.pull();
-    } else {
-      SYNC.setStatus('ok');
+  if(SYNC.url){
+    // Sheets is the source of truth — always pull the latest on load.
+    // This ensures any device always sees the most recent data.
+    const cont = document.getElementById('content');
+    if(cont) cont.innerHTML = '<div style="padding:60px;text-align:center;color:var(--muted)"><div style="font-size:36px;margin-bottom:14px">☁️</div><div style="font-size:15px;font-weight:600">Loading from Google Sheets…</div></div>';
+    const pulled = await SYNC.pull();
+    if(!pulled){
+      // Sheets is empty (first-time setup) — push local seed data up
+      await SYNC.uploadAll();
     }
   }
 
-  if(!migrated && !localStorage.getItem('crm_data_version')){
-    DB.seed();
-    localStorage.setItem('crm_data_version', DATA_VERSION);
-  }
   render();
 }
 init();
