@@ -16,7 +16,7 @@
       --border:#e2e8f0;--r:8px;
     }
     body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;font-size:14px}
-
+ 
     /* ── Sidebar ── */
     #sidebar{width:var(--sidebar-w);background:var(--sidebar-bg);position:fixed;top:0;left:0;bottom:0;display:flex;flex-direction:column;z-index:100}
     .sb-logo{padding:20px 20px 16px;border-bottom:1px solid rgba(255,255,255,.08)}
@@ -34,19 +34,19 @@
     .u-avatar{width:32px;height:32px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:13px;flex-shrink:0}
     .u-name{font-size:13px;color:#fff;font-weight:500}
     .u-email{font-size:11px;color:rgba(255,255,255,.4)}
-
+ 
     /* ── Main ── */
     #main{margin-left:var(--sidebar-w);flex:1;display:flex;flex-direction:column;min-height:100vh}
     #topbar{background:var(--card);border-bottom:1px solid var(--border);padding:0 24px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
     #topbar h2{font-size:18px;font-weight:600}
     #topbar-actions{display:flex;gap:8px;align-items:center}
     #content{padding:24px;flex:1}
-
+ 
     /* ── Cards ── */
     .card{background:var(--card);border-radius:var(--r);border:1px solid var(--border);padding:20px}
     .card-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
     .card-title{font-size:15px;font-weight:600}
-
+ 
     /* ── Stats ── */
     .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
     .stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:20px;position:relative;overflow:hidden}
@@ -59,11 +59,11 @@
     .stat-val{font-size:28px;font-weight:700}
     .stat-sub{font-size:12px;color:var(--muted);margin-top:4px}
     .stat-ico{position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:36px;opacity:.08}
-
+ 
     /* ── Charts row ── */
     .charts-row{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:24px}
     .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-
+ 
     /* ── Buttons ── */
     .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all .15s;white-space:nowrap;font-family:inherit}
     .btn-primary{background:var(--accent);color:#fff}
@@ -76,7 +76,7 @@
     .btn-ghost:hover{background:var(--bg);color:var(--text)}
     .btn-sm{padding:5px 10px;font-size:12px}
     .btn-icon{padding:6px 8px}
-
+ 
     /* ── Table ── */
     .tbl-wrap{overflow-x:auto}
     table{width:100%;border-collapse:collapse}
@@ -85,7 +85,7 @@
     tbody tr:hover{background:#f8fafc}
     tbody tr:last-child{border-bottom:none}
     tbody td{padding:12px 14px;vertical-align:middle}
-
+ 
     /* ── Badge ── */
     .badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600}
     .badge-blue{background:#dbeafe;color:#1d4ed8}
@@ -94,14 +94,14 @@
     .badge-red{background:#fee2e2;color:#991b1b}
     .badge-gray{background:#f1f5f9;color:#475569}
     .badge-purple{background:#ede9fe;color:#5b21b6}
-
+ 
     /* ── Toolbar / Search ── */
     .toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
     .search-box{display:flex;align-items:center;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:7px 12px;gap:8px;flex:1;max-width:320px}
     .search-box input{border:none;outline:none;font-size:13px;background:transparent;width:100%;color:var(--text);font-family:inherit}
     .filter-sel{padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card);color:var(--text);cursor:pointer;outline:none;font-family:inherit}
     .filter-sel:focus{border-color:var(--accent)}
-
+ 
     /* ── Form ── */
     .form-group{margin-bottom:16px}
     .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -109,7 +109,7 @@
     input,select,textarea{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--text);background:var(--card);outline:none;transition:border-color .15s;font-family:inherit}
     input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.1)}
     textarea{resize:vertical;min-height:80px}
-
+ 
     /* ── Modal ── */
     .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px}
     .modal{background:var(--card);border-radius:10px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto}
@@ -119,7 +119,7 @@
     .modal-close:hover{background:var(--border)}
     .modal-body{padding:20px 24px}
     .modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px}
-
+ 
     /* ── Kanban ── */
     .kanban{display:flex;gap:14px;overflow-x:auto;padding-bottom:8px;align-items:flex-start}
     .k-col{flex-shrink:0;width:230px}
@@ -137,7 +137,7 @@
     .deal-dt{font-size:11px;color:var(--muted)}
     .prog-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-top:8px}
     .prog-fill{height:100%;border-radius:3px}
-
+ 
     /* ── Tasks ── */
     .task-item{display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);transition:background .1s}
     .task-item:last-child{border-bottom:none}
@@ -151,40 +151,40 @@
     .task-meta{font-size:12px;color:var(--muted);margin-top:3px;display:flex;gap:10px;flex-wrap:wrap}
     .task-acts{display:flex;gap:4px;opacity:0;transition:opacity .15s}
     .task-item:hover .task-acts{opacity:1}
-
+ 
     /* ── Avatar ── */
     .avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;color:#fff;flex-shrink:0}
-
+ 
     /* ── Empty state ── */
     .empty{text-align:center;padding:48px 24px;color:var(--muted)}
     .empty .eico{font-size:48px;margin-bottom:12px}
     .empty h3{font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px}
-
+ 
     /* ── Tabs ── */
     .tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:20px}
     .tab{padding:10px 16px;font-size:13px;font-weight:500;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;white-space:nowrap}
     .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
     .tab:hover{color:var(--text)}
-
+ 
     /* ── View toggle ── */
     .view-toggle{display:flex;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px}
     .vt-btn{padding:5px 10px;border-radius:4px;cursor:pointer;font-size:13px;color:var(--muted);border:none;background:transparent;transition:all .15s;font-family:inherit}
     .vt-btn.active{background:var(--card);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.1)}
-
+ 
     /* ── Activity ── */
     .act-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
     .act-item:last-child{border-bottom:none}
     .act-dot{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
     .act-text{font-size:13px}
     .act-time{font-size:11px;color:var(--muted);margin-top:2px}
-
+ 
     /* ── Toast ── */
     #toasts{position:fixed;bottom:24px;right:24px;z-index:999;display:flex;flex-direction:column;gap:8px}
     .toast{background:#0f172a;color:#fff;padding:12px 16px;border-radius:8px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.2);display:flex;align-items:center;gap:8px;animation:slideUp .2s ease}
     .toast.success{background:#064e3b}
     .toast.error{background:#7f1d1d}
     @keyframes slideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-
+ 
     /* ── MRR ── */
     .dash-tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:20px}
     .dash-tab{padding:10px 20px;font-size:14px;font-weight:500;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;white-space:nowrap}
@@ -200,7 +200,7 @@
     .mrr-status-badge-active{background:#d1fae5;color:#065f46}
     .mrr-status-badge-paused{background:#fef3c7;color:#92400e}
     .mrr-status-badge-churned{background:#fee2e2;color:#991b1b}
-
+ 
     /* ── Side Panel ── */
     #panel-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:150;display:none;cursor:pointer}
     #panel-root{position:fixed;top:0;right:0;bottom:0;width:440px;background:var(--card);border-left:1px solid var(--border);z-index:151;transform:translateX(100%);transition:transform .25s ease;overflow-y:auto;box-shadow:-6px 0 24px rgba(0,0,0,.1)}
@@ -223,7 +223,7 @@
     .lnk:hover{text-decoration:underline}
     .stat-card{cursor:pointer}
     .stat-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);transform:translateY(-1px);transition:all .15s}
-
+ 
     /* ── Sync indicator ── */
     #sync-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--card);transition:all .15s;white-space:nowrap}
     #sync-pill:hover{background:var(--bg)}
@@ -232,7 +232,7 @@
     #sync-dot.syncing{background:var(--warning);animation:blink .8s infinite}
     #sync-dot.error{background:var(--danger)}
     @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
-
+ 
     /* ── Utility ── */
     .flex{display:flex}.items-center{align-items:center}.gap-2{gap:8px}.gap-3{gap:12px}
     .muted{color:var(--muted)}.text-sm{font-size:12px}.fw6{font-weight:600}
@@ -244,7 +244,7 @@
   </style>
 </head>
 <body>
-
+ 
 <!-- ═══ SIDEBAR ═══ -->
 <div id="sidebar">
   <div class="sb-logo">
@@ -259,6 +259,7 @@
     <div class="sb-section">Sales</div>
     <div class="nav-item" data-page="pipeline"><span class="ni">🎯</span> Pipeline</div>
     <div class="nav-item" data-page="tasks"><span class="ni">✅</span> Tasks</div>
+    <div class="nav-item" data-page="billing"><span class="ni">🧾</span> Billing</div>
   </nav>
   <div class="sb-footer">
     <div class="sb-user">
@@ -270,7 +271,7 @@
     </div>
   </div>
 </div>
-
+ 
 <!-- ═══ MAIN ═══ -->
 <div id="main">
   <div id="topbar">
@@ -283,12 +284,12 @@
   </div>
   <div id="content"></div>
 </div>
-
+ 
 <div id="modal-root"></div>
 <div id="panel-overlay" onclick="closePanel()"></div>
 <div id="panel-root"></div>
 <div id="toasts"></div>
-
+ 
 <script>
 // ══════════════════════════════════════════════
 // DATABASE
@@ -330,6 +331,13 @@ const DB = {
     this._set('crm_t',a);return a;
   },
   deleteTask(id){this._set('crm_t',this.getTasks().filter(x=>x.id!==id))},
+  getInvoices(){return this._get('crm_inv')},
+  saveInvoice(d){
+    const a=this.getInvoices();
+    if(d.id){const i=a.findIndex(x=>x.id===d.id);if(i>-1){a[i]={...a[i],...d,updatedAt:this._now()};this._set('crm_inv',a);return a[i];}}
+    const rec={...d,id:this._id(),createdAt:this._now()};a.push(rec);this._set('crm_inv',a);return rec;
+  },
+  deleteInvoice(id){this._set('crm_inv',this.getInvoices().filter(x=>x.id!==id))},
   getActivity(){return this._get('crm_act')},
   log(type,text,icon='📝'){
     const a=this.getActivity();
@@ -391,7 +399,7 @@ const DB = {
     ]);
   }
 };
-
+ 
 // ══════════════════════════════════════════════
 // CONFIG & HELPERS
 // ══════════════════════════════════════════════
@@ -406,7 +414,7 @@ const STAGES={
 const STATUS_BADGE={Lead:'badge-purple',Prospect:'badge-blue',Customer:'badge-green',Churned:'badge-red'};
 const PRI_BADGE={high:'badge-red',medium:'badge-amber',low:'badge-gray'};
 const AVATAR_COLORS=['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316'];
-
+ 
 const $=id=>document.getElementById(id);
 const fc=v=>'$'+Number(v||0).toLocaleString();
 const fd=d=>d?new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
@@ -422,7 +430,7 @@ const coName=id=>{const c=DB.getCompanies().find(x=>x.id===id);return c?c.name:'
 const ctName=id=>{const c=DB.getContacts().find(x=>x.id===id);return c?`${c.firstName} ${c.lastName}`:'—'};
 const isOverdue=d=>d&&new Date(d)<new Date(new Date().toDateString());
 const isToday=d=>d&&new Date(d).toDateString()===new Date().toDateString();
-
+ 
 function toast(msg,type='success'){
   const el=document.createElement('div');
   el.className=`toast ${type}`;
@@ -431,7 +439,7 @@ function toast(msg,type='success'){
   setTimeout(()=>{el.style.opacity='0';el.style.transition='opacity .3s';setTimeout(()=>el.remove(),300)},2500);
 }
 function closeModal(){$('modal-root').innerHTML=''}
-
+ 
 // ── Side Panel ──
 function openPanel(html){
   const p=$('panel-root'),o=$('panel-overlay');
@@ -444,7 +452,7 @@ function closePanel(){
   p.classList.remove('open');
   o.style.display='none';
 }
-
+ 
 function openCompanyPanel(coId){
   if(!coId||coId==='—')return;
   const co=DB.getCompanies().find(x=>x.id===coId);
@@ -480,7 +488,7 @@ function openCompanyPanel(coId){
           <div class="panel-stat-lbl">${totalMRR?'MRR':'Pipeline'}</div>
         </div>
       </div>
-
+ 
       <div class="panel-slbl">Details</div>
       <div>
         ${co.industry?`<div class="panel-row"><span class="muted">Industry</span><span class="badge badge-purple">${co.industry}</span></div>`:''}
@@ -491,7 +499,7 @@ function openCompanyPanel(coId){
         ${wonVal?`<div class="panel-row"><span class="muted">Closed Won</span><span class="fw6" style="color:var(--success)">${fc(wonVal)}</span></div>`:''}
         ${co.notes?`<div style="font-size:13px;color:var(--muted);padding:10px 0">${co.notes}</div>`:''}
       </div>
-
+ 
       <div class="panel-slbl">Contacts (${cts.length})</div>
       ${cts.length===0?'<div style="font-size:13px;color:var(--muted)">No contacts yet.</div>':cts.map(c=>`
         <div class="panel-item" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="openContactPanel('${c.id}')">
@@ -501,7 +509,7 @@ function openCompanyPanel(coId){
           </div>
           <span class="badge ${STATUS_BADGE[c.status]||'badge-gray'}">${c.status||''}</span>
         </div>`).join('')}
-
+ 
       <div class="panel-slbl">Deals (${allDeals.length})</div>
       ${allDeals.length===0?'<div style="font-size:13px;color:var(--muted)">No deals yet.</div>':allDeals.map(d=>`
         <div class="panel-item" style="cursor:pointer" onclick="closePanel();openDealModal('${d.id}')">
@@ -511,7 +519,7 @@ function openCompanyPanel(coId){
           </div>
           <div style="font-size:12px;color:var(--success);margin-top:2px">${fc(d.value)}${d.mrr?' · '+fc(d.mrr)+'/mo':''}</div>
         </div>`).join('')}
-
+ 
       ${openTasks.length?`
         <div class="panel-slbl">Open Tasks (${openTasks.length})</div>
         ${openTasks.map(t=>`
@@ -523,15 +531,32 @@ function openCompanyPanel(coId){
             </div>
             <span class="badge ${PRI_BADGE[t.priority]||'badge-gray'}">${t.priority}</span>
           </div>`).join('')}`:''}
-
+ 
+      ${(()=>{
+        const coInvoices=[...DB.getInvoices().filter(i=>i.companyId===coId&&i.sent)].sort((a,b)=>(b.sentDate||b.createdAt||'').localeCompare(a.sentDate||a.createdAt||''));
+        if(!coInvoices.length) return '';
+        return `<div class="panel-slbl">Invoice History (${coInvoices.length} quarters)</div>
+        ${coInvoices.map(inv=>{
+          const [yr,mo]=(inv.period||'').split('-');
+          return `<div class="panel-item">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-weight:500">${yr&&mo?(MONTH_FULL[Number(mo)-1]+' '+yr):inv.period||'—'}</span>
+              <span class="badge badge-green">✓ Sent</span>
+            </div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px">${inv.sentDate?'Sent '+fd(inv.sentDate):'—'}</div>
+          </div>`;
+        }).join('')}`;
+      })()}
+ 
       <div style="margin-top:24px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary btn-sm" onclick="closePanel();openCompanyModal('${co.id}')">✏️ Edit Company</button>
         <button class="btn btn-secondary btn-sm" onclick="closePanel();openDealModal(null,'Lead','${co.id}')">+ Add Deal</button>
         <button class="btn btn-secondary btn-sm" onclick="closePanel();openContactModal(null,'${co.id}')">+ Add Contact</button>
+        <button class="btn btn-secondary btn-sm" onclick="closePanel();nav('billing')">🧾 View Billing</button>
       </div>
     </div>`);
 }
-
+ 
 function openContactPanel(ctId){
   if(!ctId||ctId==='—')return;
   const c=DB.getContacts().find(x=>x.id===ctId);
@@ -563,7 +588,7 @@ function openContactPanel(ctId){
           <div class="panel-stat-lbl" style="margin-top:6px">Status</div>
         </div>
       </div>
-
+ 
       <div class="panel-slbl">Contact Info</div>
       <div>
         ${c.email?`<div class="panel-row"><span class="muted">Email</span><a class="lnk" href="mailto:${c.email}">${c.email}</a></div>`:''}
@@ -572,7 +597,7 @@ function openContactPanel(ctId){
         ${co?.industry?`<div class="panel-row"><span class="muted">Industry</span><span class="badge badge-purple">${co.industry}</span></div>`:''}
         ${c.notes?`<div style="font-size:13px;color:var(--muted);padding:10px 0">${c.notes}</div>`:''}
       </div>
-
+ 
       <div class="panel-slbl">Deals (${deals.length})</div>
       ${deals.length===0?'<div style="font-size:13px;color:var(--muted)">No deals yet.</div>':deals.map(d=>`
         <div class="panel-item" style="cursor:pointer" onclick="closePanel();openDealModal('${d.id}')">
@@ -582,7 +607,7 @@ function openContactPanel(ctId){
           </div>
           <div style="font-size:12px;color:var(--success);margin-top:2px">${fc(d.value)}</div>
         </div>`).join('')}
-
+ 
       ${tasks.length?`
         <div class="panel-slbl">Tasks (${tasks.length})</div>
         ${tasks.map(t=>`
@@ -594,7 +619,7 @@ function openContactPanel(ctId){
             </div>
             <span class="badge ${PRI_BADGE[t.priority]||'badge-gray'}">${t.priority}</span>
           </div>`).join('')}`:''}
-
+ 
       <div style="margin-top:24px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary btn-sm" onclick="closePanel();openContactModal('${c.id}')">✏️ Edit Contact</button>
         <button class="btn btn-secondary btn-sm" onclick="closePanel();openTaskModal(null,'${c.id}')">+ Add Task</button>
@@ -602,7 +627,7 @@ function openContactPanel(ctId){
       </div>
     </div>`);
 }
-
+ 
 // ══════════════════════════════════════════════
 // ROUTER
 // ══════════════════════════════════════════════
@@ -619,21 +644,21 @@ function daysUntil(dateStr){
   if(!dateStr)return null;
   return Math.ceil((new Date(dateStr)-new Date())/86400000);
 }
-
+ 
 function nav(page){
   PAGE=page;
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
-  $('page-title').textContent={dashboard:'Dashboard',contacts:'Contacts',companies:'Companies',pipeline:'Pipeline',tasks:'Tasks'}[page]||page;
+  $('page-title').textContent={dashboard:'Dashboard',contacts:'Contacts',companies:'Companies',pipeline:'Pipeline',tasks:'Tasks',billing:'Billing'}[page]||page;
   render();
 }
 document.querySelectorAll('.nav-item').forEach(el=>el.addEventListener('click',()=>nav(el.dataset.page)));
-
+ 
 function render(){
   Object.values(CHARTS).forEach(c=>{try{c.destroy()}catch{}});CHARTS={};
   const cont=$('content'),acts=$('topbar-actions');
-  ({dashboard:renderDash,contacts:renderContacts,companies:renderCompanies,pipeline:renderPipeline,tasks:renderTasks}[PAGE]||renderDash)(cont,acts);
+  ({dashboard:renderDash,contacts:renderContacts,companies:renderCompanies,pipeline:renderPipeline,tasks:renderTasks,billing:renderBilling}[PAGE]||renderDash)(cont,acts);
 }
-
+ 
 // ══════════════════════════════════════════════
 // DASHBOARD
 // ══════════════════════════════════════════════
@@ -648,7 +673,7 @@ function renderDash(el,acts){
   if(FILTERS.dashTab==='mrr') renderMRR($('dash-body'));
   else renderDashOverview($('dash-body'));
 }
-
+ 
 function renderDashOverview(el){
   const contacts=DB.getContacts(),deals=DB.getDeals(),tasks=DB.getTasks(),activity=DB.getActivity();
   const openDeals=deals.filter(d=>!['Closed Won','Closed Lost'].includes(d.stage));
@@ -659,7 +684,7 @@ function renderDashOverview(el){
   const stageOrder=Object.keys(STAGES);
   const stageVals={};stageOrder.forEach(s=>stageVals[s]=0);
   deals.forEach(d=>stageVals[d.stage]=(stageVals[d.stage]||0)+Number(d.value||0));
-
+ 
   el.innerHTML=`
     <div class="stats-grid">
       <div class="stat-card blue" onclick="nav('contacts')" title="View all contacts"><div class="stat-lbl">Total Contacts</div><div class="stat-val">${contacts.length}</div><div class="stat-sub">${contacts.filter(c=>c.status==='Lead').length} leads · ${contacts.filter(c=>c.status==='Customer').length} customers</div><div class="stat-ico">👤</div></div>
@@ -691,13 +716,13 @@ function renderDashOverview(el){
           </div>`).join('')||'<div class="empty" style="padding:24px"><div class="eico">✅</div><p>All caught up!</p></div>'}
       </div>
     </div>`;
-
+ 
   const ctx1=$('chartPipe');
   if(ctx1) CHARTS.pipe=new Chart(ctx1,{type:'bar',data:{labels:stageOrder,datasets:[{label:'Value',data:stageOrder.map(s=>stageVals[s]||0),backgroundColor:stageOrder.map(s=>STAGES[s].color+'99'),borderColor:stageOrder.map(s=>STAGES[s].color),borderWidth:2,borderRadius:4}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'},grid:{color:'#f1f5f9'}},x:{grid:{display:false}}}}});
   const ctx2=$('chartStatus');
   if(ctx2) CHARTS.status=new Chart(ctx2,{type:'doughnut',data:{labels:['Open','Won','Lost'],datasets:[{data:[openDeals.length,wonDeals.length,deals.filter(d=>d.stage==='Closed Lost').length],backgroundColor:['#3b82f6','#10b981','#ef4444'],borderWidth:0,hoverOffset:4}]},options:{responsive:true,cutout:'65%',plugins:{legend:{position:'bottom',labels:{padding:16,font:{size:12}}}}}});
 }
-
+ 
 function renderMRR(el){
   const deals=DB.getDeals();
   const customers=deals.filter(d=>d.stage==='Closed Won');
@@ -706,7 +731,7 @@ function renderMRR(el){
   const totalARR=totalMRR*12;
   const avgMRR=active.length?Math.round(totalMRR/active.length):0;
   const renewingSoon=customers.filter(d=>d.contractEnd&&daysUntil(d.contractEnd)!==null&&daysUntil(d.contractEnd)<=60&&daysUntil(d.contractEnd)>=0);
-
+ 
   el.innerHTML=`
     <div class="stats-grid">
       <div class="stat-card green"><div class="stat-lbl">Monthly Recurring Revenue</div><div class="stat-val">${fc(totalMRR)}</div><div class="stat-sub">${active.length} active customer${active.length!==1?'s':''}</div><div class="stat-ico">💰</div></div>
@@ -776,7 +801,7 @@ function renderMRR(el){
         </tbody>
       </table></div>
     </div>`;
-
+ 
   // MRR by customer bar chart
   const ctx1=$('chartMRR');
   if(ctx1&&active.length){
@@ -785,7 +810,7 @@ function renderMRR(el){
       datasets:[{label:'MRR',data:active.map(d=>effectiveMRR(d)),backgroundColor:'#10b98199',borderColor:'#10b981',borderWidth:2,borderRadius:4}]
     },options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>'$'+(v/1000).toFixed(1)+'k'},grid:{color:'#f1f5f9'}},x:{grid:{display:false}}}}});
   }
-
+ 
   // Billing cycle donut
   const ctx2=$('chartBilling');
   if(ctx2){
@@ -797,7 +822,7 @@ function renderMRR(el){
     },options:{responsive:true,cutout:'65%',plugins:{legend:{position:'bottom',labels:{padding:16,font:{size:12}}}}}});
   }
 }
-
+ 
 // ══════════════════════════════════════════════
 // CONTACTS
 // ══════════════════════════════════════════════
@@ -807,7 +832,7 @@ function renderContacts(el,acts){
   if(FILTERS.contactSearch){const q=FILTERS.contactSearch.toLowerCase();contacts=contacts.filter(c=>`${c.firstName} ${c.lastName} ${c.email||''} ${c.title||''}`.toLowerCase().includes(q)||coName(c.companyId).toLowerCase().includes(q))}
   if(FILTERS.contactStatus)contacts=contacts.filter(c=>c.status===FILTERS.contactStatus);
   const companies=DB.getCompanies();
-
+ 
   el.innerHTML=`<div class="card">
     <div class="toolbar">
       <div class="search-box"><span>🔍</span><input placeholder="Search contacts…" value="${FILTERS.contactSearch}" oninput="FILTERS.contactSearch=this.value;render()"></div>
@@ -833,7 +858,7 @@ function renderContacts(el,acts){
       </tbody>
     </table></div></div>`;
 }
-
+ 
 function openContactModal(id,defCompanyId){
   const c=id?DB.getContacts().find(x=>x.id===id):null;
   const defCoId=defCompanyId||c?.companyId||'';
@@ -853,20 +878,20 @@ function openContactModal(id,defCompanyId){
     <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveContact('${c?.id||''}')">Save Contact</button></div>
   </div></div>`;
 }
-
+ 
 function saveContact(id){
   const d={id:id||undefined,firstName:$('mf0').value.trim(),lastName:$('mf1').value.trim(),email:$('mf2').value.trim(),phone:$('mf3').value.trim(),title:$('mf4').value.trim(),status:$('mf5').value,companyId:$('mf6').value,notes:$('mf7').value.trim()};
   if(!d.firstName||!d.lastName){toast('First and last name are required','error');return}
   DB.saveContact(d);DB.log('contact',`${id?'Updated':'Added'} contact: ${d.firstName} ${d.lastName}`,'👤');
   closeModal();toast(`Contact ${id?'updated':'added'}`);render();
 }
-
+ 
 function delContact(id){
   const c=DB.getContacts().find(x=>x.id===id);
   if(!confirm(`Delete ${c?.firstName} ${c?.lastName}?`))return;
   DB.deleteContact(id);toast('Contact deleted');render();
 }
-
+ 
 // ══════════════════════════════════════════════
 // COMPANIES
 // ══════════════════════════════════════════════
@@ -875,7 +900,7 @@ function renderCompanies(el,acts){
   let cos=DB.getCompanies();
   if(FILTERS.companySearch){const q=FILTERS.companySearch.toLowerCase();cos=cos.filter(c=>c.name.toLowerCase().includes(q)||c.industry?.toLowerCase().includes(q))}
   const contacts=DB.getContacts(),deals=DB.getDeals();
-
+ 
   el.innerHTML=`<div class="card">
     <div class="toolbar">
       <div class="search-box"><span>🔍</span><input placeholder="Search companies…" value="${FILTERS.companySearch}" oninput="FILTERS.companySearch=this.value;render()"></div>
@@ -901,7 +926,7 @@ function renderCompanies(el,acts){
       </tbody>
     </table></div></div>`;
 }
-
+ 
 function openCompanyModal(id){
   const co=id?DB.getCompanies().find(x=>x.id===id):null;
   $('modal-root').innerHTML=`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal">
@@ -922,20 +947,20 @@ function openCompanyModal(id){
     <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveCompany('${co?.id||''}')">Save Company</button></div>
   </div></div>`;
 }
-
+ 
 function saveCompany(id){
   const d={id:id||undefined,name:$('cf0').value.trim(),industry:$('cf1').value,size:$('cf2').value,licenseCount:Number($('cf6').value)||0,website:$('cf3').value.trim(),address:$('cf4').value.trim(),notes:$('cf5').value.trim()};
   if(!d.name){toast('Company name is required','error');return}
   DB.saveCompany(d);DB.log('company',`${id?'Updated':'Added'} company: ${d.name}`,'🏢');
   closeModal();toast(`Company ${id?'updated':'added'}`);render();
 }
-
+ 
 function delCompany(id){
   const co=DB.getCompanies().find(x=>x.id===id);
   if(!confirm(`Delete ${co?.name}?`))return;
   DB.deleteCompany(id);toast('Company deleted');render();
 }
-
+ 
 // ══════════════════════════════════════════════
 // PIPELINE
 // ══════════════════════════════════════════════
@@ -948,7 +973,7 @@ function renderPipeline(el,acts){
     <button class="btn btn-primary" onclick="openDealModal()">+ Add Deal</button>`;
   PIPE_VIEW==='kanban'?renderKanban(el):renderDealList(el);
 }
-
+ 
 function renderKanban(el){
   const deals=DB.getDeals();
   const stages=Object.keys(STAGES);
@@ -983,7 +1008,7 @@ function renderKanban(el){
         </div>`}).join('')}
     </div>`;
 }
-
+ 
 function renderDealList(el){
   let deals=DB.getDeals();
   if(FILTERS.dealSearch){const q=FILTERS.dealSearch.toLowerCase();deals=deals.filter(d=>d.title.toLowerCase().includes(q)||coName(d.companyId).toLowerCase().includes(q))}
@@ -1010,7 +1035,7 @@ function renderDealList(el){
       </tbody>
     </table></div></div>`;
 }
-
+ 
 function openDealModal(id,defStage,defCompanyId){
   const d=id?DB.getDeals().find(x=>x.id===id):null;
   const defCoId=defCompanyId||d?.companyId||'';
@@ -1058,7 +1083,7 @@ function openDealModal(id,defStage,defCompanyId){
     if(mf) mf.style.display=this.value==='Closed Won'?'block':'none';
   });
 }
-
+ 
 function saveDeal(id){
   const stage=$('df4').value;
   const d={
@@ -1081,13 +1106,13 @@ function saveDeal(id){
   DB.saveDeal(d);DB.log('deal',`${id?'Updated':'Added'} deal: ${d.title} (${fc(d.value)})`,'🎯');
   closeModal();toast(`Deal ${id?'updated':'added'}`);render();
 }
-
+ 
 function delDeal(id,fromModal){
   const d=DB.getDeals().find(x=>x.id===id);
   if(!confirm(`Delete "${d?.title}"?`))return;
   DB.deleteDeal(id);if(fromModal)closeModal();toast('Deal deleted');render();
 }
-
+ 
 // ══════════════════════════════════════════════
 // TASKS
 // ══════════════════════════════════════════════
@@ -1101,7 +1126,7 @@ function renderTasks(el,acts){
   else if(FILTERS.taskTab==='open')tasks=open;
   if(FILTERS.taskSearch){const q=FILTERS.taskSearch.toLowerCase();tasks=tasks.filter(t=>t.title.toLowerCase().includes(q))}
   tasks.sort((a,b)=>{if(a.status==='completed'&&b.status!=='completed')return 1;if(b.status==='completed'&&a.status!=='completed')return-1;if(!a.dueDate)return 1;if(!b.dueDate)return-1;return new Date(a.dueDate)-new Date(b.dueDate)});
-
+ 
   el.innerHTML=`<div class="card">
     <div class="tabs">
       ${[['all',`All (${all.length})`],['open',`Open (${open.length})`],['today',`Today (${all.filter(t=>t.status!=='completed'&&isToday(t.dueDate)).length})`],['overdue',`Overdue (${all.filter(t=>t.status!=='completed'&&isOverdue(t.dueDate)).length})`],['completed',`Completed (${all.filter(t=>t.status==='completed').length})`]].map(([v,label])=>`<div class="tab ${FILTERS.taskTab===v?'active':''}" onclick="FILTERS.taskTab='${v}';render()">${label}</div>`).join('')}
@@ -1133,14 +1158,14 @@ function renderTasks(el,acts){
         </div>`}).join('')}
     </div></div>`;
 }
-
+ 
 function toggleTask(id){
   const t=DB.getTasks().find(x=>x.id===id);if(!t)return;
   t.status=t.status==='completed'?'open':'completed';
   DB.saveTask(t);if(t.status==='completed'){DB.log('task',`Completed: ${t.title}`,'✅');toast('Task marked complete')}
   render();
 }
-
+ 
 function openTaskModal(id,defContactId){
   const t=id?DB.getTasks().find(x=>x.id===id):null;
   const defCtId=defContactId||t?.contactId||'';
@@ -1166,20 +1191,180 @@ function openTaskModal(id,defContactId){
     </div>
   </div></div>`;
 }
-
+ 
 function saveTask(id){
   const d={id:id||undefined,title:$('tf0').value.trim(),dueDate:$('tf1').value,priority:$('tf2').value,contactId:$('tf3').value,dealId:$('tf4').value,notes:$('tf5').value.trim(),status:id?(DB.getTasks().find(x=>x.id===id)?.status||'open'):'open'};
   if(!d.title){toast('Task title is required','error');return}
   DB.saveTask(d);DB.log('task',`${id?'Updated':'Added'} task: ${d.title}`,'📌');
   closeModal();toast(`Task ${id?'updated':'added'}`);render();
 }
-
+ 
 function delTask(id,fromModal){
   const t=DB.getTasks().find(x=>x.id===id);
   if(!confirm(`Delete "${t?.title}"?`))return;
   DB.deleteTask(id);if(fromModal)closeModal();toast('Task deleted');render();
 }
-
+ 
+// ══════════════════════════════════════════════
+// BILLING
+// ══════════════════════════════════════════════
+ 
+const MONTH_NAMES=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTH_FULL =['January','February','March','April','May','June','July','August','September','October','November','December'];
+ 
+function billPeriodKey(yr,mo){ return `${yr}-${String(mo+1).padStart(2,'0')}`; }
+ 
+// A deal billed quarterly is due in month mo if (mo - startMonth) % 3 === 0
+function isDueThisMonth(deal, mo){
+  if(!deal.mrr || deal.mrrStatus==='churned') return false;
+  if(deal.billingCycle==='monthly') return true;
+  const startMo = deal.contractStart ? new Date(deal.contractStart).getMonth() : 0;
+  return ((mo - startMo) % 3 + 3) % 3 === 0;
+}
+ 
+let BILL_YR = new Date().getFullYear();
+let BILL_MO = new Date().getMonth(); // 0-indexed
+ 
+function renderBilling(el, acts){
+  acts.innerHTML=`<button class="btn btn-secondary btn-sm" onclick="createInvoiceTasks()">📋 Create Tasks for This Month</button>`;
+ 
+  const allDeals    = DB.getDeals().filter(d=>d.stage==='Closed Won'&&d.mrr&&d.mrrStatus!=='churned');
+  const invoices    = DB.getInvoices();
+  const key         = billPeriodKey(BILL_YR, BILL_MO);
+  const dueDeals    = allDeals.filter(d=>isDueThisMonth(d, BILL_MO));
+ 
+  // Invoices logged for this month, keyed by companyId
+  const mInvMap = {};
+  invoices.filter(i=>i.period===key).forEach(i=>{ mInvMap[i.companyId]=i; });
+ 
+  const checkedCount = dueDeals.filter(d=>mInvMap[d.companyId]?.sent).length;
+  const expectedAmt  = dueDeals.reduce((s,d)=>s+Number(d.mrr||0)*3,0);
+  const sentAmt      = dueDeals.filter(d=>mInvMap[d.companyId]?.sent).reduce((s,d)=>s+Number(d.mrr||0)*3,0);
+ 
+  // Which months have any customers due (to highlight tabs)
+  const busyMonths = new Set(allDeals.map(d=>{
+    const startMo = d.contractStart ? new Date(d.contractStart).getMonth() : 0;
+    return [0,1,2,3,4,5,6,7,8,9,10,11].filter(m=>isDueThisMonth({...d,billingCycle:'quarterly'},m)||d.billingCycle==='monthly');
+  }).flat());
+ 
+  // Previous periods that have invoice records
+  const prevKeys = [...new Set(invoices.map(i=>i.period))].filter(p=>p!==key).sort().reverse().slice(0,8);
+ 
+  el.innerHTML=`
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
+    <div class="stat-card blue"><div class="stat-lbl">Due This Month</div><div class="stat-val">${dueDeals.length}</div><div class="stat-sub">${MONTH_FULL[BILL_MO]} ${BILL_YR} · ${fc(expectedAmt)} expected</div><div class="stat-ico">📅</div></div>
+    <div class="stat-card green"><div class="stat-lbl">Invoices Sent</div><div class="stat-val">${checkedCount}</div><div class="stat-sub">${fc(sentAmt)} invoiced so far</div><div class="stat-ico">📬</div></div>
+    <div class="stat-card ${checkedCount<dueDeals.length&&dueDeals.length>0?'amber':'green'}"><div class="stat-lbl">Still Pending</div><div class="stat-val">${dueDeals.length-checkedCount}</div><div class="stat-sub">${fc(expectedAmt-sentAmt)} outstanding</div><div class="stat-ico">${checkedCount===dueDeals.length&&dueDeals.length>0?'✅':'⚠️'}</div></div>
+  </div>
+ 
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-hdr" style="flex-direction:column;gap:12px;align-items:stretch">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="btn btn-ghost btn-sm" style="padding:2px 8px" onclick="BILL_MO--;if(BILL_MO<0){BILL_MO=11;BILL_YR--;}render()">‹</button>
+          <span style="font-size:14px;font-weight:700;min-width:130px;text-align:center">${MONTH_FULL[BILL_MO]} ${BILL_YR}</span>
+          <button class="btn btn-ghost btn-sm" style="padding:2px 8px" onclick="BILL_MO++;if(BILL_MO>11){BILL_MO=0;BILL_YR++;}render()">›</button>
+        </div>
+        <span style="font-size:12px;color:var(--muted)">${checkedCount}/${dueDeals.length} sent</span>
+      </div>
+      <!-- Month tabs -->
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        ${MONTH_NAMES.map((m,i)=>{
+          const mKey = billPeriodKey(BILL_YR,i);
+          const mDue = allDeals.filter(d=>isDueThisMonth(d,i));
+          const mSent = invoices.filter(inv=>inv.period===mKey&&inv.sent).length;
+          const allDone = mDue.length>0 && mSent===mDue.length;
+          const isActive = i===BILL_MO;
+          return `<div onclick="BILL_MO=${i};render()" style="cursor:pointer;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:600;border:1px solid ${isActive?'var(--accent)':'var(--border)'};background:${isActive?'var(--accent)':allDone?'#f0fdf4':'var(--bg)'};color:${isActive?'#fff':allDone?'var(--success)':'var(--text)'};position:relative">
+            ${m}${mDue.length>0?`<span style="position:absolute;top:-4px;right:-4px;background:${allDone?'var(--success)':mSent>0?'var(--accent)':'var(--danger)'};color:#fff;border-radius:50%;width:14px;height:14px;font-size:9px;display:flex;align-items:center;justify-content:center">${mDue.length}</span>`:''}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+    <div style="padding:0 16px 8px">
+      ${dueDeals.length===0
+        ? `<div style="padding:16px 0;color:var(--muted);font-size:13px;text-align:center">No invoices due in ${MONTH_FULL[BILL_MO]}.</div>`
+        : `<div style="font-size:11px;color:var(--muted);padding:8px 0 10px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:28px 1fr 90px 90px;gap:8px">
+            <span></span><span>CUSTOMER</span><span style="text-align:right">INVOICE AMT</span><span style="text-align:center">STATUS</span>
+          </div>
+          ${dueDeals.map(d=>{
+            const co      = DB.getCompanies().find(c=>c.id===d.companyId);
+            const inv     = mInvMap[d.companyId];
+            const checked = !!inv?.sent;
+            const qAmt    = Number(d.mrr||0)*3;
+            return `<div style="display:grid;grid-template-columns:28px 1fr 90px 90px;gap:8px;align-items:center;padding:11px 0;border-bottom:1px solid var(--border)">
+              <div onclick="toggleBillCheck('${d.companyId}','${key}','${d.id}')" style="width:20px;height:20px;border-radius:4px;border:2px solid ${checked?'var(--success)':'var(--border)'};background:${checked?'var(--success)':'transparent'};display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-size:12px;font-weight:700;flex-shrink:0">${checked?'✓':''}</div>
+              <div>
+                <div style="font-weight:600;font-size:13px;${checked?'text-decoration:line-through;color:var(--muted)':''}">${co?.name||'Unknown'}</div>
+                <div style="font-size:11px;color:var(--muted)">${fc(d.mrr)}/mo · quarterly${inv?.sentDate?' · Sent '+fd(inv.sentDate):''}</div>
+              </div>
+              <div style="text-align:right;font-weight:700;font-size:13px;color:var(--success)">${fc(qAmt)}</div>
+              <div style="text-align:center">
+                ${checked
+                  ? `<span style="color:var(--success);font-size:12px;font-weight:600">✓ Sent</span>`
+                  : `<span style="color:var(--muted);font-size:12px">Pending</span>`}
+              </div>
+            </div>`;
+          }).join('')}`}
+    </div>
+  </div>
+ 
+  ${prevKeys.length ? `
+  <div class="card">
+    <div class="card-hdr"><div class="card-title">History</div></div>
+    <table class="tbl"><thead><tr><th>Month</th><th>Sent</th><th>Amount</th></tr></thead><tbody>
+    ${prevKeys.map(pk=>{
+      const [pyr,pmo]=pk.split('-');
+      const pkSent = invoices.filter(i=>i.period===pk&&i.sent);
+      const pkAmt  = pkSent.reduce((s,i)=>{
+        const deal = allDeals.find(d=>d.companyId===i.companyId);
+        return s + Number(deal?.mrr||0)*3;
+      },0);
+      return `<tr>
+        <td style="font-weight:600">${MONTH_FULL[Number(pmo)-1]} ${pyr}</td>
+        <td><span class="badge badge-green">✓ ${pkSent.length}</span></td>
+        <td style="color:var(--success);font-weight:600">${fc(pkAmt)}</td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>
+  </div>` : ''}`;
+}
+ 
+function toggleBillCheck(companyId, periodK, dealId){
+  const existing = DB.getInvoices().find(i=>i.companyId===companyId&&i.period===periodK);
+  if(existing){
+    DB.deleteInvoice(existing.id);
+    toast('Unmarked');
+  } else {
+    DB.saveInvoice({companyId, dealId, period:periodK, sent:true, sentDate:new Date().toISOString().split('T')[0]});
+    // Auto-complete any linked invoice task for this deal/month
+    const moLabel = MONTH_FULL[Number(periodK.split('-')[1])-1]+' '+periodK.split('-')[0];
+    const tasks = DB.getTasks().filter(t=>t.status!=='completed'&&t.dealId===dealId&&t.title?.toLowerCase().includes('invoice'));
+    if(tasks.length){ tasks.forEach(t=>DB.saveTask({...t,status:'completed'})); toast('Invoice sent · task completed ✓'); }
+    else toast('Invoice marked sent ✓');
+  }
+  render();
+}
+ 
+function createInvoiceTasks(){
+  const key     = billPeriodKey(BILL_YR, BILL_MO);
+  const dueDate = `${BILL_YR}-${String(BILL_MO+1).padStart(2,'0')}-01`;
+  const dueDeals = DB.getDeals().filter(d=>d.stage==='Closed Won'&&d.mrr&&d.mrrStatus!=='churned'&&isDueThisMonth(d,BILL_MO));
+  const mInvMap = {};
+  DB.getInvoices().filter(i=>i.period===key).forEach(i=>{ mInvMap[i.companyId]=i; });
+  let created=0;
+  dueDeals.forEach(d=>{
+    if(mInvMap[d.companyId]?.sent) return;
+    const co=DB.getCompanies().find(c=>c.id===d.companyId);
+    const already=DB.getTasks().find(t=>t.status!=='completed'&&t.dealId===d.id&&t.title?.includes(MONTH_FULL[BILL_MO]));
+    if(already) return;
+    DB.saveTask({title:`Send invoice to ${co?.name||'customer'} — ${MONTH_FULL[BILL_MO]} ${BILL_YR}`,dueDate,priority:'high',status:'open',dealId:d.id,notes:`Quarterly invoice · ${fc(Number(d.mrr||0)*3)}`});
+    created++;
+  });
+  toast(created>0?`${created} tasks created in Tasks tab`:'All done or tasks already exist');
+  if(created>0) render();
+}
+ 
 // ══════════════════════════════════════════════
 // EXPORT
 // ══════════════════════════════════════════════
@@ -1188,13 +1373,13 @@ function exportJSON(){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`crm-export-${new Date().toISOString().split('T')[0]}.json`;a.click();
   toast('Data exported');
 }
-
+ 
 // ══════════════════════════════════════════════
 // GOOGLE SHEETS SYNC
 // ══════════════════════════════════════════════
 const SYNC = {
   get url(){ return localStorage.getItem('crm_gs_url')||'' },
-
+ 
   setStatus(s, msg){
     const dot=$('sync-dot'), lbl=$('sync-label');
     if(!dot||!lbl) return;
@@ -1202,7 +1387,7 @@ const SYNC = {
     const labels={idle:'Local only', syncing:'Syncing…', ok:'Synced', error:'Sync error'};
     lbl.textContent = msg || labels[s] || s;
   },
-
+ 
   // All requests go through GET to avoid CORS issues with Google Apps Script
   async _req(params){
     const qs = Object.entries(params)
@@ -1211,7 +1396,7 @@ const SYNC = {
     const r = await fetch(this.url + '?' + qs);
     try { return await r.json(); } catch(e) { return {ok:true}; }
   },
-
+ 
   // Push a single record (upsert) or a full array (clear + chunked append)
   async push(type, data){
     if(!this.url) return;
@@ -1233,7 +1418,7 @@ const SYNC = {
       this.setStatus('error');
     }
   },
-
+ 
   // Delete a single record by id
   async pushDelete(type, id){
     if(!this.url) return;
@@ -1246,7 +1431,7 @@ const SYNC = {
       this.setStatus('error');
     }
   },
-
+ 
   async pull(){
     if(!this.url){ this.setStatus('idle'); return false; }
     this.setStatus('syncing');
@@ -1276,7 +1461,7 @@ const SYNC = {
       return false;
     }
   },
-
+ 
   async uploadAll(){
     if(!this.url){ toast('No Google Sheets URL configured','error'); return; }
     const types=[
@@ -1295,12 +1480,12 @@ const SYNC = {
     toast('All data uploaded to Google Sheets ✓');
   }
 };
-
+ 
 // Wrap DB write methods so every save/delete auto-syncs
 {
-  const SAVE_TYPE={saveContact:'contacts',saveCompany:'companies',saveDeal:'deals',saveTask:'tasks'};
-  const DEL_TYPE={deleteContact:'contacts',deleteCompany:'companies',deleteDeal:'deals',deleteTask:'tasks'};
-
+  const SAVE_TYPE={saveContact:'contacts',saveCompany:'companies',saveDeal:'deals',saveTask:'tasks',saveInvoice:'invoices'};
+  const DEL_TYPE={deleteContact:'contacts',deleteCompany:'companies',deleteDeal:'deals',deleteTask:'tasks',deleteInvoice:'invoices'};
+ 
   Object.keys(SAVE_TYPE).forEach(m=>{
     const orig=DB[m].bind(DB);
     // Push just the single saved record (upsert on Sheets side)
@@ -1314,7 +1499,7 @@ const SYNC = {
   const origLog=DB.log.bind(DB);
   DB.log=function(type,text,icon){ origLog(type,text,icon); SYNC.push('activity',DB.getActivity()); };
 }
-
+ 
 // ── Sync Settings Modal ───────────────────────
 function showSyncSettings(){
   const url=SYNC.url;
@@ -1357,11 +1542,11 @@ function showSyncSettings(){
     </div>
   </div></div>`;
 }
-
+ 
 async function connectGS(){
   const url=($('gs-url-input')||{}).value?.trim();
   if(!url||!url.includes('script.google.com')){ toast('Please enter a valid Apps Script URL','error'); return; }
-
+ 
   // Test the connection — any JSON response (even empty array) means it's reachable
   toast('Testing connection…');
   try {
@@ -1375,22 +1560,22 @@ async function connectGS(){
     console.warn('GS connect test failed', e);
     return;
   }
-
+ 
   localStorage.setItem('crm_gs_url', url);
   closeModal();
   toast('Connected! Uploading your data to Google Sheets…');
   await SYNC.uploadAll();
   render();
 }
-
+ 
 // ══════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════
-
+ 
 // Bump this version string any time seed data changes.
 // If localStorage has an older version, data is wiped and reseeded.
-const DATA_VERSION = '2025-customers-v1';
-
+const DATA_VERSION = '2025-customers-v2';
+ 
 function migrateIfNeeded(){
   const stored = localStorage.getItem('crm_data_version');
   if(stored !== DATA_VERSION){
@@ -1402,12 +1587,24 @@ function migrateIfNeeded(){
   }
   return false;
 }
-
+ 
 async function init(){
   const migrated = migrateIfNeeded();
+ 
   if(!migrated && SYNC.url){
-    await SYNC.pull();
+    // Only pull from Sheets if this browser has no local data yet (fresh device/browser).
+    // After that, local data is authoritative — pushes keep Sheets up to date in the background.
+    // Use the manual "Pull latest from Sheets" button to force a refresh.
+    const hasData = ['crm_c','crm_co','crm_d','crm_t'].some(k=>{
+      try{ return JSON.parse(localStorage.getItem(k)||'[]').length>0; } catch{ return false; }
+    });
+    if(!hasData){
+      await SYNC.pull();
+    } else {
+      SYNC.setStatus('ok');
+    }
   }
+ 
   if(!migrated && !localStorage.getItem('crm_data_version')){
     DB.seed();
     localStorage.setItem('crm_data_version', DATA_VERSION);
