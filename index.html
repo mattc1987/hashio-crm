@@ -1483,37 +1483,10 @@ function copyInvestorUpdate(){
   const monthLabel = `${MONTH_FULL[EXEC_MO]} ${EXEC_YR}`;
   const prevMoLabel = EXEC_MO===0?`December ${EXEC_YR-1}`:`${MONTH_FULL[EXEC_MO-1]} ${EXEC_YR}`;
 
-  const text = `Hello,
+  const sign = mrrChange >= 0 ? '+' : '';
+  const mrrNote = prevMRR && mrrChange ? '\nNote: ' + monthLabel + ' MRR reflects ' + sign + fc(mrrChange) + ' vs ' + prevMoLabel + '.' : '';
 
-Here's the ${monthLabel} HashIO investor update:
-
-Progress
-Key Metrics Snapshot
-
-KPI | ${monthLabel} | ${prevMoLabel}
-MRR | ${fc(totalMRR)} | ${prevMRR?fc(prevMRR):'—'}
-New Customers | ${d.newCustomers||0} | 0
-Churn | ${d.churnCount||0} | 0
-Demos Booked | ${d.demosBooked||0} | —
-Total Customers | ${active.length} | —
-${prevMRR&&mrrChange?`\nNote: ${monthLabel} MRR reflects ${mrrChange>=0?'+'+''}${fc(mrrChange)} vs ${prevMoLabel}.`:''}
-
-Wins
-${d.wins||'(No wins entered)'}
-
-Plans
-${d.plans||'(No plans entered)'}
-
-Losses
-${d.losses||'(No losses entered)'}
-
-Problems
-${d.problems||'(No problems entered)'}
-
-As always, happy to answer any questions or further elaborate.
-
-Best,
-Matthew Campbell`;
+  const text = 'Hello,\n\nHere\'s the ' + monthLabel + ' HashIO investor update:\n\nProgress\nKey Metrics Snapshot\n\nKPI | ' + monthLabel + ' | ' + prevMoLabel + '\nMRR | ' + fc(totalMRR) + ' | ' + (prevMRR ? fc(prevMRR) : '—') + '\nNew Customers | ' + (d.newCustomers||0) + ' | 0\nChurn | ' + (d.churnCount||0) + ' | 0\nDemos Booked | ' + (d.demosBooked||0) + ' | —\nTotal Customers | ' + active.length + ' | —' + mrrNote + '\n\nWins\n' + (d.wins||'(No wins entered)') + '\n\nPlans\n' + (d.plans||'(No plans entered)') + '\n\nLosses\n' + (d.losses||'(No losses entered)') + '\n\nProblems\n' + (d.problems||'(No problems entered)') + '\n\nAs always, happy to answer any questions or further elaborate.\n\nBest,\nMatthew Campbell';
 
   navigator.clipboard.writeText(text).then(()=>toast('Investor update copied to clipboard ✓')).catch(()=>toast('Copy failed — please copy manually','error'));
 }
