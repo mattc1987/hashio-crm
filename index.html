@@ -1316,14 +1316,28 @@ function quickUpdateBilling(dealId, field, value){
 let EXEC_YR = new Date().getFullYear();
 let EXEC_MO = new Date().getMonth(); // 0-indexed
 
-function execKey(yr,mo){ return `exec_${yr}_${String(mo+1).padStart(2,'0')}`; }
+function execPeriod(yr,mo){ return yr+'_'+String(mo+1).padStart(2,'0'); }
+function execId(yr,mo){ return 'exec_'+execPeriod(yr,mo); }
+
+// crm_exec holds a single JSON array of per-month records, compatible with Sheets sync.
+// Each record: { id:'exec_YYYY_MM', period:'YYYY_MM', ...fields }
+function getAllExecData(){
+  try{ return JSON.parse(localStorage.getItem('crm_exec')||'[]'); }catch{ return []; }
+}
 function getExecData(yr,mo){
-  try{ return JSON.parse(localStorage.getItem(execKey(yr,mo))||'{}'); }catch{ return {}; }
+  const id = execId(yr,mo);
+  const all = getAllExecData();
+  return all.find(r=>r.id===id) || {};
 }
 function saveExecField(field, value){
-  const d = getExecData(EXEC_YR, EXEC_MO);
-  d[field] = value;
-  localStorage.setItem(execKey(EXEC_YR, EXEC_MO), JSON.stringify(d));
+  const id = execId(EXEC_YR, EXEC_MO);
+  const period = execPeriod(EXEC_YR, EXEC_MO);
+  let all = getAllExecData();
+  let rec = all.find(r=>r.id===id);
+  if(!rec){ rec = {id, period}; all.push(rec); }
+  rec[field] = value;
+  localStorage.setItem('crm_exec', JSON.stringify(all));
+  SYNC.push('exec_updates', all);
 }
 
 function renderExec(el, acts){
@@ -1888,7 +1902,8 @@ const SYNC = {
         {key:'deals',    store:'crm_d'},
         {key:'tasks',    store:'crm_t'},
         {key:'activity', store:'crm_act'},
-        {key:'invoices', store:'crm_inv'},
+        {key:'invoices',    store:'crm_inv'},
+        {key:'exec_updates',store:'crm_exec'},
       ];
       const results = await Promise.all(
         types.map(t => this._req({action:'read', type:t.key}))
@@ -1912,12 +1927,13 @@ const SYNC = {
   async uploadAll(){
     if(!this.url){ toast('No Google Sheets URL configured','error'); return; }
     const types=[
-      {key:'contacts', store:'crm_c'},
-      {key:'companies', store:'crm_co'},
-      {key:'deals',    store:'crm_d'},
-      {key:'tasks',    store:'crm_t'},
-      {key:'activity', store:'crm_act'},
-      {key:'invoices', store:'crm_inv'},
+      {key:'contacts',     store:'crm_c'},
+      {key:'companies',    store:'crm_co'},
+      {key:'deals',        store:'crm_d'},
+      {key:'tasks',        store:'crm_t'},
+      {key:'activity',     store:'crm_act'},
+      {key:'invoices',     store:'crm_inv'},
+      {key:'exec_updates', store:'crm_exec'},
     ];
     this.setStatus('syncing','Uploading…');
     for(const t of types){
