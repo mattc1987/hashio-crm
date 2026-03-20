@@ -1106,15 +1106,33 @@ function toggleBillingMonth(){
 // ══════════════════════════════════════════════
 // CASHFLOW DASHBOARD
 // ══════════════════════════════════════════════
-function getMonthlyExpenses(){ return Number(localStorage.getItem('crm_monthly_expenses')||0); }
-function setMonthlyExpenses(v){ localStorage.setItem('crm_monthly_expenses', Number(v)||0); render(); }
+// Per-month cashflow expenses — stored as crm_cashflow array, synced to Sheets
+function getAllCashflowData(){
+  try{ return JSON.parse(localStorage.getItem('crm_cashflow')||'[]'); }catch{ return []; }
+}
+function getCashflowExpenses(yr,mo){
+  const id = 'cashflow_'+yr+'_'+String(mo+1).padStart(2,'0');
+  const rec = getAllCashflowData().find(r=>r.id===id);
+  // Fall back to legacy single value if no per-month record yet
+  return rec ? Number(rec.expenses||0) : Number(localStorage.getItem('crm_monthly_expenses')||0);
+}
+function saveCashflowExpenses(yr,mo,v){
+  const id = 'cashflow_'+yr+'_'+String(mo+1).padStart(2,'0');
+  const period = yr+'_'+String(mo+1).padStart(2,'0');
+  let all = getAllCashflowData();
+  let rec = all.find(r=>r.id===id);
+  if(!rec){ rec = {id, period}; all.push(rec); }
+  rec.expenses = Number(v)||0;
+  localStorage.setItem('crm_cashflow', JSON.stringify(all));
+  SYNC.push('cashflow', all);
+}
 
 function renderCashflow(el, acts){
   acts.innerHTML='';
 
   const allDeals = DB.getDeals().filter(d=>d.stage==='Closed Won'&&d.mrr&&d.mrrStatus!=='churned');
   const invoices = DB.getInvoices();
-  const monthlyExp = getMonthlyExpenses();
+  const monthlyExp = getCashflowExpenses(CASH_YR, CASH_MO); // per-month value
 
   // Cash a deal generates in a given month (0-indexed)
   function dealCash(deal, mo){
@@ -1132,40 +1150,42 @@ function renderCashflow(el, acts){
   const invoiced  = dueDeals.filter(d=>sentMap[d.companyId]).reduce((s,d)=>s+dealCash(d,CASH_MO),0);
   const pending   = expected - invoiced;
 
-  // YTD totals (Jan → selected month, same year)
+  // YTD totals (Jan → selected month, same year) — per-month expenses
   let ytdExpected=0, ytdInvoiced=0, ytdNet=0;
   for(let m=0; m<=CASH_MO; m++){
     const mk = billPeriodKey(CASH_YR, m);
+    const mExp = getCashflowExpenses(CASH_YR, m);
     const mDue = allDeals.filter(d=>isDueThisMonth(d,m));
     const mRev = mDue.reduce((s,d)=>s+dealCash(d,m),0);
     ytdExpected += mRev;
-    ytdNet += mRev - monthlyExp;
+    ytdNet += mRev - mExp;
     const mSent={};
     invoices.filter(i=>i.period===mk&&i.sent).forEach(i=>{ mSent[i.companyId]=i; });
     ytdInvoiced += mDue.filter(d=>mSent[d.companyId]).reduce((s,d)=>s+dealCash(d,m),0);
   }
 
-  // Full-year projection data
+  // Full-year projection data — per-month expenses
   const annualData = [0,1,2,3,4,5,6,7,8,9,10,11].map(m=>
     allDeals.reduce((s,d)=>s+dealCash(d,m),0)
   );
-  const annualTotal = annualData.reduce((a,b)=>a+b,0);
-  const annualNet   = annualTotal - (monthlyExp * 12);
+  const annualTotal    = annualData.reduce((a,b)=>a+b,0);
+  const annualExpenses = [0,1,2,3,4,5,6,7,8,9,10,11].reduce((s,m)=>s+getCashflowExpenses(CASH_YR,m),0);
+  const annualNet      = annualTotal - annualExpenses;
 
   el.innerHTML=`
-  <!-- Expenses Setting -->
+  <!-- Expenses Setting — per month -->
   <div class="card" style="margin-bottom:20px;border-color:${monthlyExp?'var(--warning)':'var(--border)'}">
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-      <div style="font-size:14px;font-weight:600;white-space:nowrap">🏢 Monthly Operating Expenses</div>
+      <div style="font-size:14px;font-weight:600;white-space:nowrap">🏢 Operating Expenses — ${MONTH_FULL[CASH_MO]}</div>
       <div style="display:flex;align-items:center;gap:8px;flex:1;max-width:260px">
         <span style="font-size:15px;font-weight:600;color:var(--muted)">$</span>
         <input type="number" min="0" step="500"
           value="${monthlyExp||''}"
           placeholder="e.g. 25000"
-          onchange="setMonthlyExpenses(this.value)"
+          onchange="saveCashflowExpenses(CASH_YR,CASH_MO,this.value);render()"
           style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;width:100%">
       </div>
-      <div style="font-size:12px;color:var(--muted)">${monthlyExp?`${fc(monthlyExp)}/mo · ${fc(monthlyExp*12)}/yr applied to all months`:'Enter your fixed monthly overhead to see net cashflow'}</div>
+      <div style="font-size:12px;color:var(--muted)">${monthlyExp?`${fc(monthlyExp)} for ${MONTH_FULL[CASH_MO]} · syncs across browsers`:'Enter expenses for this month to see surplus / deficit'}</div>
     </div>
   </div>
 
@@ -1173,7 +1193,7 @@ function renderCashflow(el, acts){
     <div class="stat-card green"><div class="stat-lbl">Revenue This Month</div><div class="stat-val">${fc(expected)}</div><div class="stat-sub">${dueDeals.length} invoice${dueDeals.length!==1?'s':''} · ${MONTH_FULL[CASH_MO]} ${CASH_YR}</div><div class="stat-ico">💵</div></div>
     <div class="stat-card ${monthlyExp?'amber':'blue'}"><div class="stat-lbl">Expenses This Month</div><div class="stat-val">${monthlyExp?fc(monthlyExp):'—'}</div><div class="stat-sub">${monthlyExp?'Monthly operating overhead':'Not configured'}</div><div class="stat-ico">🏢</div></div>
     <div class="stat-card ${net>=0?'green':'red'}"><div class="stat-lbl">Net Cashflow</div><div class="stat-val" style="color:${net>=0?'var(--success)':'var(--danger)'}">${monthlyExp?(net>=0?'+':'')+fc(net):'—'}</div><div class="stat-sub">${monthlyExp?(net>=0?'Surplus 🟢':'Deficit 🔴'):'Set expenses above'}</div><div class="stat-ico">${net>=0?'📈':'📉'}</div></div>
-    <div class="stat-card blue"><div class="stat-lbl">${CASH_YR} Annual Net</div><div class="stat-val" style="font-size:20px;color:${annualNet>=0?'var(--success)':'var(--danger)'}">${monthlyExp?(annualNet>=0?'+':'')+fc(annualNet):fc(annualTotal)}</div><div class="stat-sub">${monthlyExp?`${fc(annualTotal)} revenue · ${fc(monthlyExp*12)} expenses`:'No expenses configured'}</div><div class="stat-ico">📊</div></div>
+    <div class="stat-card blue"><div class="stat-lbl">${CASH_YR} Annual Net</div><div class="stat-val" style="font-size:20px;color:${annualNet>=0?'var(--success)':'var(--danger)'}">${annualExpenses?(annualNet>=0?'+':'')+fc(annualNet):fc(annualTotal)}</div><div class="stat-sub">${annualExpenses?`${fc(annualTotal)} revenue · ${fc(annualExpenses)} expenses`:'No expenses configured'}</div><div class="stat-ico">📊</div></div>
   </div>
 
   <!-- Annual bar chart -->
@@ -1246,23 +1266,25 @@ function renderCashflow(el, acts){
         <span>MONTH</span><span style="text-align:right">REVENUE</span><span style="text-align:right">EXPENSES</span><span style="text-align:right">NET</span>
       </div>
       ${[0,1,2,3,4,5,6,7,8,9,10,11].map(m=>{
-        const mk   = billPeriodKey(CASH_YR, m);
+        const mExp = getCashflowExpenses(CASH_YR, m);
         const mDue = allDeals.filter(d=>isDueThisMonth(d,m));
         const mRev = mDue.reduce((s,d)=>s+dealCash(d,m),0);
-        const mNet = mRev - monthlyExp;
+        const mNet = mRev - mExp;
         const isSelected = m===CASH_MO;
-        return `<div onclick="CASH_MO=${m};render()" style="display:grid;grid-template-columns:1fr 110px 110px 120px;gap:8px;align-items:center;padding:9px 8px;border-radius:6px;cursor:pointer;margin:1px -8px;background:${isSelected?'var(--accent-light, #eff6ff)':'transparent'};border:1px solid ${isSelected?'var(--accent)':'transparent'}">
+        const netColor = !mExp ? 'var(--muted)' : mNet>=0 ? 'var(--success)' : 'var(--danger)';
+        const netLabel = !mExp ? '—' : (mNet>=0?'▲ +':'▼ ')+fc(mNet);
+        return `<div onclick="CASH_MO=${m};render()" style="display:grid;grid-template-columns:1fr 110px 110px 140px;gap:8px;align-items:center;padding:9px 8px;border-radius:6px;cursor:pointer;margin:1px -8px;background:${isSelected?'var(--accent-light, #eff6ff)':'transparent'};border:1px solid ${isSelected?'var(--accent)':'transparent'}">
           <div style="font-weight:${isSelected?'700':'500'};font-size:13px;color:${isSelected?'var(--accent)':'var(--text)'}">${MONTH_FULL[m]}</div>
           <div style="text-align:right;font-size:13px;font-weight:600;color:${mRev>0?'var(--success)':'var(--muted)'}">${mRev>0?fc(mRev):'—'}</div>
-          <div style="text-align:right;font-size:13px;color:${monthlyExp?'var(--danger)':'var(--muted)'}">${monthlyExp?fc(monthlyExp):'—'}</div>
-          <div style="text-align:right;font-size:13px;font-weight:600;color:${!monthlyExp?'var(--muted)':mNet>=0?'var(--success)':'var(--danger)'}">${monthlyExp?(mNet>=0?'+':'')+fc(mNet):'—'}</div>
+          <div style="text-align:right;font-size:13px;color:${mExp?'var(--danger)':'var(--muted)'}">${mExp?fc(mExp):'—'}</div>
+          <div style="text-align:right;font-size:13px;font-weight:700;color:${netColor}">${netLabel}</div>
         </div>`;
       }).join('')}
-      <div style="display:grid;grid-template-columns:1fr 110px 110px 120px;gap:8px;padding:12px 8px 4px;border-top:2px solid var(--border);margin-top:4px">
+      <div style="display:grid;grid-template-columns:1fr 110px 110px 140px;gap:8px;padding:12px 8px 4px;border-top:2px solid var(--border);margin-top:4px">
         <div style="font-weight:700;font-size:13px">Annual Total</div>
         <div style="text-align:right;font-weight:700;font-size:13px;color:var(--success)">${fc(annualTotal)}</div>
-        <div style="text-align:right;font-weight:700;font-size:13px;color:var(--danger)">${monthlyExp?fc(monthlyExp*12):'—'}</div>
-        <div style="text-align:right;font-weight:700;font-size:13px;color:${annualNet>=0?'var(--success)':'var(--danger)'}">${monthlyExp?(annualNet>=0?'+':'')+fc(annualNet):'—'}</div>
+        <div style="text-align:right;font-weight:700;font-size:13px;color:var(--danger)">${annualExpenses?fc(annualExpenses):'—'}</div>
+        <div style="text-align:right;font-weight:700;font-size:13px;color:${annualNet>=0?'var(--success)':'var(--danger)'}">${annualExpenses?(annualNet>=0?'▲ +':'▼ ')+fc(annualNet):'—'}</div>
       </div>
     </div>
   </div>`;
@@ -1340,16 +1362,34 @@ function saveExecField(field, value){
   SYNC.push('exec_updates', all);
 }
 
+function snapshotMRR(){
+  const deals = DB.getDeals();
+  const active = deals.filter(d=>d.stage==='Closed Won'&&d.mrrStatus==='active'&&d.mrr);
+  const liveMRR = active.reduce((s,d)=>s+Number(d.mrr||0),0);
+  saveExecField('savedMRR', liveMRR);
+  toast('MRR snapshot saved for ' + MONTH_FULL[EXEC_MO] + ' ' + EXEC_YR + ' ✓');
+  render();
+}
+
 function renderExec(el, acts){
   const deals = DB.getDeals();
   const customers = deals.filter(d=>d.stage==='Closed Won');
   const active = customers.filter(d=>d.mrrStatus==='active'&&d.mrr);
   const churned = customers.filter(d=>d.mrrStatus==='churned');
-  const totalMRR = active.reduce((s,d)=>s+Number(d.mrr||0),0);
+  const liveMRR = active.reduce((s,d)=>s+Number(d.mrr||0),0);
 
-  // Previous month MRR (user-entered or calculated)
   const d = getExecData(EXEC_YR, EXEC_MO);
-  const prevMRR = Number(d.prevMRR||0);
+
+  // Use saved snapshot if it exists, otherwise live value
+  const totalMRR = d.savedMRR ? Number(d.savedMRR) : liveMRR;
+  const hasSnapshot = !!d.savedMRR;
+
+  // Auto-fill prevMRR from previous month's snapshot if not manually set
+  const prevMoYr  = EXEC_MO===0 ? EXEC_YR-1 : EXEC_YR;
+  const prevMoMo  = EXEC_MO===0 ? 11 : EXEC_MO-1;
+  const prevMoData = getExecData(prevMoYr, prevMoMo);
+  const prevMRR = Number(d.prevMRR || prevMoData.savedMRR || 0);
+  const prevMRRSource = d.prevMRR ? 'manual' : (prevMoData.savedMRR ? 'auto' : 'none');
   const mrrChange = totalMRR - prevMRR;
   const newCust = Number(d.newCustomers||0);
   const churnCount = Number(d.churnCount||0);
@@ -1358,7 +1398,9 @@ function renderExec(el, acts){
   const monthLabel = `${MONTH_FULL[EXEC_MO]} ${EXEC_YR}`;
   const prevMoLabel = EXEC_MO===0 ? `December ${EXEC_YR-1}` : `${MONTH_FULL[EXEC_MO-1]} ${EXEC_YR}`;
 
-  acts.innerHTML=`<button class="btn btn-secondary btn-sm" onclick="copyInvestorUpdate()">📋 Copy Investor Update</button>`;
+  acts.innerHTML=`
+    <button class="btn btn-secondary btn-sm" onclick="snapshotMRR()" title="Save current MRR as this month's permanent record">${hasSnapshot?'📸 Re-snapshot MRR':'📸 Snapshot MRR'}</button>
+    <button class="btn btn-secondary btn-sm" onclick="copyInvestorUpdate()">📋 Copy Investor Update</button>`;
 
   el.innerHTML=`
   <!-- Month selector -->
@@ -1385,11 +1427,15 @@ function renderExec(el, acts){
         <tbody>
           <tr style="border-bottom:1px solid var(--border)">
             <td style="padding:12px 14px;font-weight:600">MRR</td>
-            <td style="text-align:center;padding:12px 14px;font-weight:700;color:var(--success);font-size:15px">${fc(totalMRR)}</td>
             <td style="text-align:center;padding:12px 14px">
-              <input type="number" value="${prevMRR||''}" placeholder="Enter prev MRR"
+              <div style="font-weight:700;color:var(--success);font-size:15px">${fc(totalMRR)}</div>
+              <div style="font-size:10px;margin-top:3px;color:${hasSnapshot?'var(--success)':'var(--warning)'}">${hasSnapshot?'📸 Snapshot saved':'⚡ Live — click Snapshot MRR to lock'}</div>
+            </td>
+            <td style="text-align:center;padding:12px 14px">
+              <input type="number" value="${prevMRR||''}" placeholder="${prevMRRSource==='auto'?'Auto from prev month':'Enter prev MRR'}"
                 onchange="saveExecField('prevMRR',this.value);render()"
-                style="width:120px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:center;font-family:inherit">
+                style="width:130px;padding:5px 8px;border:1px solid ${prevMRRSource==='auto'?'var(--accent)':'var(--border)'};border-radius:5px;font-size:12px;text-align:center;font-family:inherit">
+              ${prevMRRSource==='auto'?'<div style="font-size:10px;color:var(--accent);margin-top:3px">Auto from prev snapshot</div>':''}
             </td>
             <td style="text-align:center;padding:12px 14px;font-weight:700;color:${mrrChange>=0?'var(--success)':'var(--danger)'}">
               ${prevMRR?(mrrChange>=0?'+':'')+fc(mrrChange):'—'}
@@ -1458,7 +1504,7 @@ function renderExec(el, acts){
 
   <!-- MRR Summary from CRM -->
   <div class="card" style="margin-bottom:20px">
-    <div class="card-hdr"><div class="card-title">💰 Live MRR Breakdown (from CRM)</div><span class="text-sm muted">Auto-populated · ${active.length} active accounts</span></div>
+    <div class="card-hdr"><div class="card-title">💰 ${hasSnapshot?'Snapshot MRR Breakdown':'Live MRR Breakdown (from CRM)'}</div><span class="text-sm muted">${hasSnapshot?'Locked snapshot for '+monthLabel:'Auto-populated · '+active.length+' active accounts'}</span></div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
       <div style="background:var(--bg);border-radius:8px;padding:14px;text-align:center">
         <div style="font-size:22px;font-weight:700;color:var(--success)">${fc(totalMRR)}</div>
@@ -1904,6 +1950,7 @@ const SYNC = {
         {key:'activity', store:'crm_act'},
         {key:'invoices',    store:'crm_inv'},
         {key:'exec_updates',store:'crm_exec'},
+        {key:'cashflow',    store:'crm_cashflow'},
       ];
       const results = await Promise.all(
         types.map(t => this._req({action:'read', type:t.key}))
@@ -1934,6 +1981,7 @@ const SYNC = {
       {key:'activity',     store:'crm_act'},
       {key:'invoices',     store:'crm_inv'},
       {key:'exec_updates', store:'crm_exec'},
+      {key:'cashflow',     store:'crm_cashflow'},
     ];
     this.setStatus('syncing','Uploading…');
     for(const t of types){
