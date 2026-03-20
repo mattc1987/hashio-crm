@@ -261,6 +261,7 @@
     <div class="nav-item" data-page="tasks"><span class="ni">✅</span> Tasks</div>
     <div class="nav-item" data-page="billing"><span class="ni">🧾</span> Billing</div>
     <div class="nav-item" data-page="cashflow"><span class="ni">💵</span> Cashflow</div>
+    <div class="nav-item" data-page="exec"><span class="ni">📋</span> Exec Dashboard</div>
   </nav>
   <div class="sb-footer">
     <div class="sb-user">
@@ -650,7 +651,7 @@ function daysUntil(dateStr){
 function nav(page){
   PAGE=page;
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
-  $('page-title').textContent={dashboard:'Dashboard',contacts:'Contacts',companies:'Companies',pipeline:'Pipeline',tasks:'Tasks',billing:'Billing',cashflow:'Cashflow'}[page]||page;
+  $('page-title').textContent={dashboard:'Dashboard',contacts:'Contacts',companies:'Companies',pipeline:'Pipeline',tasks:'Tasks',billing:'Billing',cashflow:'Cashflow',exec:'Exec Dashboard'}[page]||page;
   render();
 }
 document.querySelectorAll('.nav-item').forEach(el=>el.addEventListener('click',()=>nav(el.dataset.page)));
@@ -658,7 +659,7 @@ document.querySelectorAll('.nav-item').forEach(el=>el.addEventListener('click',(
 function render(){
   Object.values(CHARTS).forEach(c=>{try{c.destroy()}catch{}});CHARTS={};
   const cont=$('content'),acts=$('topbar-actions');
-  ({dashboard:renderDash,contacts:renderContacts,companies:renderCompanies,pipeline:renderPipeline,tasks:renderTasks,billing:renderBilling,cashflow:renderCashflow}[PAGE]||renderDash)(cont,acts);
+  ({dashboard:renderDash,contacts:renderContacts,companies:renderCompanies,pipeline:renderPipeline,tasks:renderTasks,billing:renderBilling,cashflow:renderCashflow,exec:renderExec}[PAGE]||renderDash)(cont,acts);
 }
 
 // ══════════════════════════════════════════════
@@ -1105,11 +1106,15 @@ function toggleBillingMonth(){
 // ══════════════════════════════════════════════
 // CASHFLOW DASHBOARD
 // ══════════════════════════════════════════════
+function getMonthlyExpenses(){ return Number(localStorage.getItem('crm_monthly_expenses')||0); }
+function setMonthlyExpenses(v){ localStorage.setItem('crm_monthly_expenses', Number(v)||0); render(); }
+
 function renderCashflow(el, acts){
   acts.innerHTML='';
 
   const allDeals = DB.getDeals().filter(d=>d.stage==='Closed Won'&&d.mrr&&d.mrrStatus!=='churned');
   const invoices = DB.getInvoices();
+  const monthlyExp = getMonthlyExpenses();
 
   // Cash a deal generates in a given month (0-indexed)
   function dealCash(deal, mo){
@@ -1120,6 +1125,7 @@ function renderCashflow(el, acts){
   // Selected month
   const dueDeals  = allDeals.filter(d=>isDueThisMonth(d, CASH_MO));
   const expected  = dueDeals.reduce((s,d)=>s+dealCash(d,CASH_MO),0);
+  const net       = expected - monthlyExp;
   const periodKey = billPeriodKey(CASH_YR, CASH_MO);
   const sentMap   = {};
   invoices.filter(i=>i.period===periodKey&&i.sent).forEach(i=>{ sentMap[i.companyId]=i; });
@@ -1127,11 +1133,13 @@ function renderCashflow(el, acts){
   const pending   = expected - invoiced;
 
   // YTD totals (Jan → selected month, same year)
-  let ytdExpected=0, ytdInvoiced=0;
+  let ytdExpected=0, ytdInvoiced=0, ytdNet=0;
   for(let m=0; m<=CASH_MO; m++){
     const mk = billPeriodKey(CASH_YR, m);
     const mDue = allDeals.filter(d=>isDueThisMonth(d,m));
-    ytdExpected += mDue.reduce((s,d)=>s+dealCash(d,m),0);
+    const mRev = mDue.reduce((s,d)=>s+dealCash(d,m),0);
+    ytdExpected += mRev;
+    ytdNet += mRev - monthlyExp;
     const mSent={};
     invoices.filter(i=>i.period===mk&&i.sent).forEach(i=>{ mSent[i.companyId]=i; });
     ytdInvoiced += mDue.filter(d=>mSent[d.companyId]).reduce((s,d)=>s+dealCash(d,m),0);
@@ -1142,13 +1150,30 @@ function renderCashflow(el, acts){
     allDeals.reduce((s,d)=>s+dealCash(d,m),0)
   );
   const annualTotal = annualData.reduce((a,b)=>a+b,0);
+  const annualNet   = annualTotal - (monthlyExp * 12);
 
   el.innerHTML=`
+  <!-- Expenses Setting -->
+  <div class="card" style="margin-bottom:20px;border-color:${monthlyExp?'var(--warning)':'var(--border)'}">
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <div style="font-size:14px;font-weight:600;white-space:nowrap">🏢 Monthly Operating Expenses</div>
+      <div style="display:flex;align-items:center;gap:8px;flex:1;max-width:260px">
+        <span style="font-size:15px;font-weight:600;color:var(--muted)">$</span>
+        <input type="number" min="0" step="500"
+          value="${monthlyExp||''}"
+          placeholder="e.g. 25000"
+          onchange="setMonthlyExpenses(this.value)"
+          style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;width:100%">
+      </div>
+      <div style="font-size:12px;color:var(--muted)">${monthlyExp?`${fc(monthlyExp)}/mo · ${fc(monthlyExp*12)}/yr applied to all months`:'Enter your fixed monthly overhead to see net cashflow'}</div>
+    </div>
+  </div>
+
   <div class="stats-grid" style="margin-bottom:20px">
-    <div class="stat-card green"><div class="stat-lbl">Expected This Month</div><div class="stat-val">${fc(expected)}</div><div class="stat-sub">${dueDeals.length} invoice${dueDeals.length!==1?'s':''} · ${MONTH_FULL[CASH_MO]} ${CASH_YR}</div><div class="stat-ico">💵</div></div>
-    <div class="stat-card blue"><div class="stat-lbl">Invoiced This Month</div><div class="stat-val">${fc(invoiced)}</div><div class="stat-sub">${Object.keys(sentMap).length} of ${dueDeals.length} sent</div><div class="stat-ico">📬</div></div>
-    <div class="stat-card ${pending>0?'amber':'green'}"><div class="stat-lbl">Still Pending</div><div class="stat-val">${fc(pending)}</div><div class="stat-sub">${dueDeals.length-Object.keys(sentMap).length} invoice${dueDeals.length-Object.keys(sentMap).length!==1?'s':''} not yet sent</div><div class="stat-ico">${pending>0?'⏳':'✅'}</div></div>
-    <div class="stat-card blue"><div class="stat-lbl">${CASH_YR} Annual Projection</div><div class="stat-val">${fc(annualTotal)}</div><div class="stat-sub">${fc(ytdExpected)} expected YTD · ${fc(ytdInvoiced)} invoiced</div><div class="stat-ico">📈</div></div>
+    <div class="stat-card green"><div class="stat-lbl">Revenue This Month</div><div class="stat-val">${fc(expected)}</div><div class="stat-sub">${dueDeals.length} invoice${dueDeals.length!==1?'s':''} · ${MONTH_FULL[CASH_MO]} ${CASH_YR}</div><div class="stat-ico">💵</div></div>
+    <div class="stat-card ${monthlyExp?'amber':'blue'}"><div class="stat-lbl">Expenses This Month</div><div class="stat-val">${monthlyExp?fc(monthlyExp):'—'}</div><div class="stat-sub">${monthlyExp?'Monthly operating overhead':'Not configured'}</div><div class="stat-ico">🏢</div></div>
+    <div class="stat-card ${net>=0?'green':'red'}"><div class="stat-lbl">Net Cashflow</div><div class="stat-val" style="color:${net>=0?'var(--success)':'var(--danger)'}">${monthlyExp?(net>=0?'+':'')+fc(net):'—'}</div><div class="stat-sub">${monthlyExp?(net>=0?'Surplus 🟢':'Deficit 🔴'):'Set expenses above'}</div><div class="stat-ico">${net>=0?'📈':'📉'}</div></div>
+    <div class="stat-card blue"><div class="stat-lbl">${CASH_YR} Annual Net</div><div class="stat-val" style="font-size:20px;color:${annualNet>=0?'var(--success)':'var(--danger)'}">${monthlyExp?(annualNet>=0?'+':'')+fc(annualNet):fc(annualTotal)}</div><div class="stat-sub">${monthlyExp?`${fc(annualTotal)} revenue · ${fc(monthlyExp*12)} expenses`:'No expenses configured'}</div><div class="stat-ico">📊</div></div>
   </div>
 
   <!-- Annual bar chart -->
@@ -1217,29 +1242,27 @@ function renderCashflow(el, acts){
       <span class="text-sm muted">${fc(annualTotal)} projected</span>
     </div>
     <div style="padding:0 16px 8px">
-      <div style="display:grid;grid-template-columns:1fr 110px 110px 110px;gap:8px;font-size:11px;color:var(--muted);padding:10px 0 8px;border-bottom:1px solid var(--border)">
-        <span>MONTH</span><span style="text-align:right">EXPECTED</span><span style="text-align:right">INVOICES</span><span style="text-align:right"># DUE</span>
+      <div style="display:grid;grid-template-columns:1fr 110px 110px 120px;gap:8px;font-size:11px;color:var(--muted);padding:10px 0 8px;border-bottom:1px solid var(--border)">
+        <span>MONTH</span><span style="text-align:right">REVENUE</span><span style="text-align:right">EXPENSES</span><span style="text-align:right">NET</span>
       </div>
       ${[0,1,2,3,4,5,6,7,8,9,10,11].map(m=>{
         const mk   = billPeriodKey(CASH_YR, m);
         const mDue = allDeals.filter(d=>isDueThisMonth(d,m));
-        const mExp = mDue.reduce((s,d)=>s+dealCash(d,m),0);
-        const mSent={};
-        invoices.filter(i=>i.period===mk&&i.sent).forEach(i=>{ mSent[i.companyId]=i; });
-        const mInv = mDue.filter(d=>mSent[d.companyId]).reduce((s,d)=>s+dealCash(d,m),0);
+        const mRev = mDue.reduce((s,d)=>s+dealCash(d,m),0);
+        const mNet = mRev - monthlyExp;
         const isSelected = m===CASH_MO;
-        return `<div onclick="CASH_MO=${m};render()" style="display:grid;grid-template-columns:1fr 110px 110px 110px;gap:8px;align-items:center;padding:9px 8px;border-radius:6px;cursor:pointer;margin:1px -8px;background:${isSelected?'var(--accent-light, #eff6ff)':'transparent'};border:1px solid ${isSelected?'var(--accent)':'transparent'}">
+        return `<div onclick="CASH_MO=${m};render()" style="display:grid;grid-template-columns:1fr 110px 110px 120px;gap:8px;align-items:center;padding:9px 8px;border-radius:6px;cursor:pointer;margin:1px -8px;background:${isSelected?'var(--accent-light, #eff6ff)':'transparent'};border:1px solid ${isSelected?'var(--accent)':'transparent'}">
           <div style="font-weight:${isSelected?'700':'500'};font-size:13px;color:${isSelected?'var(--accent)':'var(--text)'}">${MONTH_FULL[m]}</div>
-          <div style="text-align:right;font-size:13px;font-weight:600;color:${mExp>0?'var(--success)':'var(--muted)'}">${mExp>0?fc(mExp):'—'}</div>
-          <div style="text-align:right;font-size:13px;color:${mInv>0?'var(--text)':'var(--muted)'}">${mInv>0?fc(mInv):'—'}</div>
-          <div style="text-align:right;font-size:13px;color:var(--muted)">${mDue.length>0?mDue.length:'—'}</div>
+          <div style="text-align:right;font-size:13px;font-weight:600;color:${mRev>0?'var(--success)':'var(--muted)'}">${mRev>0?fc(mRev):'—'}</div>
+          <div style="text-align:right;font-size:13px;color:${monthlyExp?'var(--danger)':'var(--muted)'}">${monthlyExp?fc(monthlyExp):'—'}</div>
+          <div style="text-align:right;font-size:13px;font-weight:600;color:${!monthlyExp?'var(--muted)':mNet>=0?'var(--success)':'var(--danger)'}">${monthlyExp?(mNet>=0?'+':'')+fc(mNet):'—'}</div>
         </div>`;
       }).join('')}
-      <div style="display:grid;grid-template-columns:1fr 110px 110px 110px;gap:8px;padding:12px 8px 4px;border-top:2px solid var(--border);margin-top:4px">
-        <div style="font-weight:700;font-size:13px">Total</div>
+      <div style="display:grid;grid-template-columns:1fr 110px 110px 120px;gap:8px;padding:12px 8px 4px;border-top:2px solid var(--border);margin-top:4px">
+        <div style="font-weight:700;font-size:13px">Annual Total</div>
         <div style="text-align:right;font-weight:700;font-size:13px;color:var(--success)">${fc(annualTotal)}</div>
-        <div style="text-align:right;font-weight:700;font-size:13px">${fc(ytdInvoiced)}</div>
-        <div></div>
+        <div style="text-align:right;font-weight:700;font-size:13px;color:var(--danger)">${monthlyExp?fc(monthlyExp*12):'—'}</div>
+        <div style="text-align:right;font-weight:700;font-size:13px;color:${annualNet>=0?'var(--success)':'var(--danger)'}">${monthlyExp?(annualNet>=0?'+':'')+fc(annualNet):'—'}</div>
       </div>
     </div>
   </div>`;
@@ -1285,6 +1308,214 @@ function quickUpdateBilling(dealId, field, value){
   DB.saveDeal(deal);
   toast('Billing updated ✓');
   render();
+}
+
+// ══════════════════════════════════════════════
+// EXECUTIVE DASHBOARD
+// ══════════════════════════════════════════════
+let EXEC_YR = new Date().getFullYear();
+let EXEC_MO = new Date().getMonth(); // 0-indexed
+
+function execKey(yr,mo){ return `exec_${yr}_${String(mo+1).padStart(2,'0')}`; }
+function getExecData(yr,mo){
+  try{ return JSON.parse(localStorage.getItem(execKey(yr,mo))||'{}'); }catch{ return {}; }
+}
+function saveExecField(field, value){
+  const d = getExecData(EXEC_YR, EXEC_MO);
+  d[field] = value;
+  localStorage.setItem(execKey(EXEC_YR, EXEC_MO), JSON.stringify(d));
+}
+
+function renderExec(el, acts){
+  const deals = DB.getDeals();
+  const customers = deals.filter(d=>d.stage==='Closed Won');
+  const active = customers.filter(d=>d.mrrStatus==='active'&&d.mrr);
+  const churned = customers.filter(d=>d.mrrStatus==='churned');
+  const totalMRR = active.reduce((s,d)=>s+Number(d.mrr||0),0);
+
+  // Previous month MRR (user-entered or calculated)
+  const d = getExecData(EXEC_YR, EXEC_MO);
+  const prevMRR = Number(d.prevMRR||0);
+  const mrrChange = totalMRR - prevMRR;
+  const newCust = Number(d.newCustomers||0);
+  const churnCount = Number(d.churnCount||0);
+  const demos = Number(d.demosBooked||0);
+
+  const monthLabel = `${MONTH_FULL[EXEC_MO]} ${EXEC_YR}`;
+  const prevMoLabel = EXEC_MO===0 ? `December ${EXEC_YR-1}` : `${MONTH_FULL[EXEC_MO-1]} ${EXEC_YR}`;
+
+  acts.innerHTML=`<button class="btn btn-secondary btn-sm" onclick="copyInvestorUpdate()">📋 Copy Investor Update</button>`;
+
+  el.innerHTML=`
+  <!-- Month selector -->
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px">
+    <button class="btn btn-ghost btn-sm" style="padding:2px 8px" onclick="EXEC_MO--;if(EXEC_MO<0){EXEC_MO=11;EXEC_YR--;}render()">‹</button>
+    <span style="font-size:16px;font-weight:700;min-width:160px;text-align:center">${monthLabel}</span>
+    <button class="btn btn-ghost btn-sm" style="padding:2px 8px" onclick="EXEC_MO++;if(EXEC_MO>11){EXEC_MO=0;EXEC_YR++;}render()">›</button>
+    <span style="font-size:12px;color:var(--muted);margin-left:8px">Investor Update</span>
+  </div>
+
+  <!-- KPI snapshot -->
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-hdr"><div class="card-title">📊 Key Metrics Snapshot</div><span class="text-sm muted">Auto-calculated from CRM + manual entries</span></div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="background:var(--bg)">
+            <th style="text-align:left;padding:10px 14px;font-size:12px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">KPI</th>
+            <th style="text-align:center;padding:10px 14px;font-size:12px;font-weight:600;color:var(--accent);border-bottom:1px solid var(--border)">${monthLabel}</th>
+            <th style="text-align:center;padding:10px 14px;font-size:12px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">${prevMoLabel}</th>
+            <th style="text-align:center;padding:10px 14px;font-size:12px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">Change</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:12px 14px;font-weight:600">MRR</td>
+            <td style="text-align:center;padding:12px 14px;font-weight:700;color:var(--success);font-size:15px">${fc(totalMRR)}</td>
+            <td style="text-align:center;padding:12px 14px">
+              <input type="number" value="${prevMRR||''}" placeholder="Enter prev MRR"
+                onchange="saveExecField('prevMRR',this.value);render()"
+                style="width:120px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:center;font-family:inherit">
+            </td>
+            <td style="text-align:center;padding:12px 14px;font-weight:700;color:${mrrChange>=0?'var(--success)':'var(--danger)'}">
+              ${prevMRR?(mrrChange>=0?'+':'')+fc(mrrChange):'—'}
+            </td>
+          </tr>
+          <tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:12px 14px;font-weight:600">Total Active Customers</td>
+            <td style="text-align:center;padding:12px 14px;font-weight:700;font-size:15px">${active.length}</td>
+            <td style="text-align:center;padding:12px 14px;color:var(--muted)">—</td>
+            <td style="text-align:center;padding:12px 14px;color:var(--muted)">—</td>
+          </tr>
+          <tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:12px 14px;font-weight:600">New Customers</td>
+            <td style="text-align:center;padding:12px 14px">
+              <input type="number" min="0" value="${newCust||''}" placeholder="0"
+                onchange="saveExecField('newCustomers',this.value);render()"
+                style="width:80px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;text-align:center;font-family:inherit;font-weight:700">
+            </td>
+            <td style="text-align:center;padding:12px 14px;color:var(--muted)">0</td>
+            <td style="text-align:center;padding:12px 14px;font-weight:700;color:${newCust>0?'var(--success)':'var(--muted)'}">
+              ${newCust>0?'+'+newCust:'—'}
+            </td>
+          </tr>
+          <tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:12px 14px;font-weight:600">Churn</td>
+            <td style="text-align:center;padding:12px 14px">
+              <input type="number" min="0" value="${churnCount||''}" placeholder="0"
+                onchange="saveExecField('churnCount',this.value);render()"
+                style="width:80px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;text-align:center;font-family:inherit;font-weight:700">
+            </td>
+            <td style="text-align:center;padding:12px 14px;color:var(--muted)">0</td>
+            <td style="text-align:center;padding:12px 14px;font-weight:700;color:${churnCount>0?'var(--danger)':'var(--success)'}">
+              ${churnCount>0?churnCount:'0 ✓'}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:12px 14px;font-weight:600">Demos Booked</td>
+            <td style="text-align:center;padding:12px 14px">
+              <input type="number" min="0" value="${demos||''}" placeholder="0"
+                onchange="saveExecField('demosBooked',this.value);render()"
+                style="width:80px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;text-align:center;font-family:inherit;font-weight:700">
+            </td>
+            <td style="text-align:center;padding:12px 14px;color:var(--muted)">—</td>
+            <td style="text-align:center;padding:12px 14px;color:var(--muted)">—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Wins / Plans / Losses / Problems -->
+  ${[
+    {key:'wins',   label:'🏆 Wins',     placeholder:'• Added $X in new MRR\n• Closed [Customer] as a new customer\n• Hired [Name] as [Role]'},
+    {key:'plans',  label:'🗺 Plans',    placeholder:'• Sales & Marketing: ...\n• Customer Success: ...\n• Product: ...'},
+    {key:'losses', label:'📉 Losses',   placeholder:'• No confirmed churn in ${monthLabel}.\n• ...'},
+    {key:'problems',label:'⚠️ Problems',placeholder:'• One customer has not fully onboarded...\n• ...'},
+  ].map(sec=>`
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-hdr"><div class="card-title">${sec.label}</div></div>
+      <textarea
+        placeholder="${sec.placeholder}"
+        onchange="saveExecField('${sec.key}',this.value)"
+        style="width:100%;padding:12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;min-height:120px;resize:vertical;color:var(--text);background:var(--bg);line-height:1.6"
+      >${d[sec.key]||''}</textarea>
+    </div>`).join('')}
+
+  <!-- MRR Summary from CRM -->
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-hdr"><div class="card-title">💰 Live MRR Breakdown (from CRM)</div><span class="text-sm muted">Auto-populated · ${active.length} active accounts</span></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+      <div style="background:var(--bg);border-radius:8px;padding:14px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:var(--success)">${fc(totalMRR)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Current MRR</div>
+      </div>
+      <div style="background:var(--bg);border-radius:8px;padding:14px;text-align:center">
+        <div style="font-size:22px;font-weight:700">${fc(totalMRR*12)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">ARR</div>
+      </div>
+      <div style="background:var(--bg);border-radius:8px;padding:14px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:${churned.length>0?'var(--danger)':'var(--success)'}">${churned.length}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Churned Accounts</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);padding:8px 0 6px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr 100px 100px">
+      <span>CUSTOMER</span><span style="text-align:right">MRR</span><span style="text-align:right">STATUS</span>
+    </div>
+    ${active.map(d=>{
+      const co = DB.getCompanies().find(c=>c.id===d.companyId);
+      return `<div style="display:grid;grid-template-columns:1fr 100px 100px;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px">
+        <div style="font-weight:500">${co?.name||'Unknown'}</div>
+        <div style="text-align:right;font-weight:600;color:var(--success)">${fc(d.mrr)}</div>
+        <div style="text-align:right"><span class="badge badge-green">Active</span></div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function copyInvestorUpdate(){
+  const d = getExecData(EXEC_YR, EXEC_MO);
+  const deals = DB.getDeals();
+  const active = deals.filter(dl=>dl.stage==='Closed Won'&&dl.mrrStatus==='active'&&dl.mrr);
+  const totalMRR = active.reduce((s,dl)=>s+Number(dl.mrr||0),0);
+  const prevMRR = Number(d.prevMRR||0);
+  const mrrChange = totalMRR - prevMRR;
+  const monthLabel = `${MONTH_FULL[EXEC_MO]} ${EXEC_YR}`;
+  const prevMoLabel = EXEC_MO===0?`December ${EXEC_YR-1}`:`${MONTH_FULL[EXEC_MO-1]} ${EXEC_YR}`;
+
+  const text = `Hello,
+
+Here's the ${monthLabel} HashIO investor update:
+
+Progress
+Key Metrics Snapshot
+
+KPI | ${monthLabel} | ${prevMoLabel}
+MRR | ${fc(totalMRR)} | ${prevMRR?fc(prevMRR):'—'}
+New Customers | ${d.newCustomers||0} | 0
+Churn | ${d.churnCount||0} | 0
+Demos Booked | ${d.demosBooked||0} | —
+Total Customers | ${active.length} | —
+${prevMRR&&mrrChange?`\nNote: ${monthLabel} MRR reflects ${mrrChange>=0?'+'+''}${fc(mrrChange)} vs ${prevMoLabel}.`:''}
+
+Wins
+${d.wins||'(No wins entered)'}
+
+Plans
+${d.plans||'(No plans entered)'}
+
+Losses
+${d.losses||'(No losses entered)'}
+
+Problems
+${d.problems||'(No problems entered)'}
+
+As always, happy to answer any questions or further elaborate.
+
+Best,
+Matthew Campbell`;
+
+  navigator.clipboard.writeText(text).then(()=>toast('Investor update copied to clipboard ✓')).catch(()=>toast('Copy failed — please copy manually','error'));
 }
 
 function saveDeal(id){
