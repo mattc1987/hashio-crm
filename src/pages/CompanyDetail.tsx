@@ -1,5 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, ExternalLink, Mail, Phone, MapPin, Building2, Link2 } from 'lucide-react'
+import { ActivityFeed } from '../components/ActivityFeed'
+import { NotesSection } from '../components/NotesSection'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, CardHeader, Badge, Avatar, PageHeader, Empty } from '../components/ui'
 import { currency, date, monthlyMRR, activeMRRByCompany } from '../lib/format'
@@ -217,6 +219,12 @@ export function CompanyDetail() {
           </div>
         </Card>
       )}
+
+      {/* Notes + Activity feed */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <NotesSection entityType="company" entityId={company.id} />
+        <ActivityFeed entityType="company" entityId={company.id} />
+      </div>
     </div>
   )
 }

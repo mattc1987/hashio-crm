@@ -18,6 +18,7 @@ import type {
   Enrollment,
   ExecUpdate,
   Invoice,
+  Note,
   Sequence,
   SequenceStep,
   SheetData,
@@ -277,6 +278,18 @@ function mapBookings(rows: Record<string, string>[]): Booking[] {
   }))
 }
 
+function mapNotes(rows: Record<string, string>[]): Note[] {
+  return rows.map((r) => ({
+    id: r.id,
+    entityType: (r.entityType as Note['entityType']) || 'contact',
+    entityId: r.entityId || '',
+    body: r.body || '',
+    author: r.author || '',
+    createdAt: r.createdAt || '',
+    updatedAt: r.updatedAt || '',
+  }))
+}
+
 // ---------- Entry point ----------
 
 export async function loadAll(): Promise<SheetData> {
@@ -296,6 +309,7 @@ export async function loadAll(): Promise<SheetData> {
     sendRows,
     bookingLinkRows,
     bookingRows,
+    noteRows,
   ] = await Promise.all([
     fetchTab('Companies'),
     fetchTab('Contacts'),
@@ -312,6 +326,7 @@ export async function loadAll(): Promise<SheetData> {
     fetchTab('EmailSends').catch(() => []),
     fetchTab('BookingLinks').catch(() => []),
     fetchTab('Bookings').catch(() => []),
+    fetchTab('Notes').catch(() => []),
   ])
 
   return {
@@ -330,6 +345,7 @@ export async function loadAll(): Promise<SheetData> {
     emailSends: mapEmailSends(sendRows),
     bookingLinks: mapBookingLinks(bookingLinkRows),
     bookings: mapBookings(bookingRows),
+    notes: mapNotes(noteRows),
     fetchedAt: new Date().toISOString(),
   }
 }

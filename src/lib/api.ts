@@ -128,6 +128,11 @@ export const api = {
     update: (payload: Record<string, unknown>) => save('bookingLinks', 'update', payload),
     remove: (id: string) => save('bookingLinks', 'delete', { id }),
   },
+  note: {
+    create: (payload: Record<string, unknown>) => save('notes', 'create', payload),
+    update: (payload: Record<string, unknown>) => save('notes', 'update', payload),
+    remove: (id: string) => save('notes', 'delete', { id }),
+  },
 }
 
 export function invokeAction(action: string, params: Record<string, unknown>): Promise<WriteResult> {

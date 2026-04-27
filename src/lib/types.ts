@@ -281,6 +281,22 @@ export interface Booking {
   createdAt: string
 }
 
+/* ============================================================
+   Notes (free-text per-record feed)
+   ============================================================ */
+
+export type NoteEntityType = 'contact' | 'company' | 'deal'
+
+export interface Note {
+  id: string
+  entityType: NoteEntityType
+  entityId: string
+  body: string
+  author: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface SheetData {
   companies: Company[]
   contacts: Contact[]
@@ -297,5 +313,6 @@ export interface SheetData {
   emailSends: EmailSend[]
   bookingLinks: BookingLink[]
   bookings: Booking[]
+  notes: Note[]
   fetchedAt: string
 }
