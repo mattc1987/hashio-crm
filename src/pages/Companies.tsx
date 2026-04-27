@@ -6,6 +6,8 @@ import { Card, Button, Input, PageHeader, Empty, Avatar, Badge } from '../compon
 import { currency, activeMRRByCompany, billingCycleLabel, isActiveMRR } from '../lib/format'
 import type { Company, Deal } from '../lib/types'
 import { CompanyEditor } from '../components/editors/CompanyEditor'
+import { computeClientHealth, type ClientHealth } from '../lib/clientHealth'
+import { HealthDot } from '../components/HealthDot'
 
 export function Companies() {
   const { state, refresh } = useSheetData()
@@ -17,6 +19,10 @@ export function Companies() {
   const companies = data?.companies ?? []
   const contacts = data?.contacts ?? []
   const deals = data?.deals ?? []
+  const tasks = data?.tasks ?? []
+  const activity = data?.activity ?? []
+  const emailSends = data?.emailSends ?? []
+  const bookings = data?.bookings ?? []
 
   const withMRR = useMemo(
     () =>
@@ -30,15 +36,17 @@ export function Companies() {
           cycles.length === 0 ? '' :
           cycles.length === 1 ? cycles[0] :
           'mixed'
+        const health = computeClientHealth(c, { deals, tasks, activity, emailSends, bookings, contacts })
         return {
           company: c,
           mrr: activeMRRByCompany(deals, c.id),
           contactCount: contacts.filter((ct) => ct.companyId === c.id).length,
           dealCount: companyDeals.length,
           billingCycle,
+          health,
         }
       }),
-    [companies, contacts, deals],
+    [companies, contacts, deals, tasks, activity, emailSends, bookings],
   )
 
   const filtered = useMemo(() => {
@@ -102,7 +110,7 @@ export function Companies() {
           />
         ) : (
           <div className="divide-y divide-[color:var(--border)]">
-            {filtered.map(({ company, mrr, contactCount, dealCount, billingCycle }) => (
+            {filtered.map(({ company, mrr, contactCount, dealCount, billingCycle, health }) => (
               <CompanyRow
                 key={company.id}
                 company={company}
@@ -110,6 +118,7 @@ export function Companies() {
                 contactCount={contactCount}
                 dealCount={dealCount}
                 billingCycle={billingCycle}
+                health={health}
               />
             ))}
           </div>
@@ -132,12 +141,14 @@ function CompanyRow({
   contactCount,
   dealCount,
   billingCycle,
+  health,
 }: {
   company: Company
   mrr: number
   contactCount: number
   dealCount: number
   billingCycle: string
+  health: ClientHealth
 }) {
   const cycleLabel =
     billingCycle === 'mixed'
@@ -150,6 +161,7 @@ function CompanyRow({
       to={`/companies/${company.id}`}
       className="flex items-center gap-4 px-4 py-3 hover:surface-2 transition-colors group"
     >
+      <HealthDot tier={health.tier} reason={health.reason} size={9} />
       <Avatar name={company.name} size={36} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
@@ -163,6 +175,9 @@ function CompanyRow({
           {contactCount} contact{contactCount === 1 ? '' : 's'}
           {' · '}
           {dealCount} deal{dealCount === 1 ? '' : 's'}
+          {health.daysSinceLastTouch !== null && health.tier !== 'inactive' && (
+            <span className="text-[var(--text-faint)]"> · last touch {health.daysSinceLastTouch}d</span>
+          )}
         </div>
       </div>
       {company.website && (
