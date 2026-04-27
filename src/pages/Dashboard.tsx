@@ -7,9 +7,13 @@ import {
 } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, CardHeader, Stat, Badge, PageHeader, Empty, Skeleton, Avatar } from '../components/ui'
-import { currency, num, date, totalActiveMRR, activeMRRByCompany, formatPeriod, isActiveMRR } from '../lib/format'
-import type { Deal, Task, ExecUpdate, Company } from '../lib/types'
+import { currency, num, date, totalActiveMRR, activeMRRByCompany, formatPeriod, parsePeriod, isActiveMRR } from '../lib/format'
+import type { Deal, Task, ExecUpdate, Company, Cashflow } from '../lib/types'
 import { cn } from '../lib/cn'
+import { TodayWidget } from '../components/dashboard/TodayWidget'
+import { LineChart } from '../components/charts/LineChart'
+import { HealthDot } from '../components/HealthDot'
+import { computeClientHealth } from '../lib/clientHealth'
 
 export function Dashboard() {
   const { state } = useSheetData()
@@ -35,7 +39,7 @@ export function Dashboard() {
   const data = 'data' in state && state.data
   if (!data) return <DashboardSkeleton />
 
-  const { companies, contacts, deals, tasks, execUpdates, cashflow } = data
+  const { companies, contacts, deals, tasks, execUpdates, cashflow, bookings, emailSends, activity } = data
 
   const activeMRR = totalActiveMRR(deals)
   const activeClients = countActiveClients(companies, deals)
@@ -59,6 +63,15 @@ export function Dashboard() {
         subtitle="Your Hashio business at a glance."
       />
 
+      {/* Today widget */}
+      <TodayWidget
+        bookings={bookings}
+        tasks={tasks}
+        emailSends={emailSends}
+        contacts={contacts}
+      />
+
+      {/* Stat strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <Stat
           label="Current MRR"
@@ -89,12 +102,23 @@ export function Dashboard() {
         />
       </div>
 
+      {/* MRR trend chart */}
+      <MRRTrend execUpdates={execUpdates} cashflow={cashflow} currentMRR={activeMRR} />
+
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <PipelineSnapshot deals={deals} />
         <UpcomingTasks tasks={tasks} deals={deals} contacts={contacts} />
       </div>
 
-      <TopClientsByMRR companies={companies} deals={deals} contacts={contacts} />
+      <TopClientsByMRR
+        companies={companies}
+        deals={deals}
+        contacts={contacts}
+        tasks={tasks}
+        activity={activity}
+        emailSends={emailSends}
+        bookings={bookings}
+      />
 
       {latestExec && <LatestExecUpdate exec={latestExec} />}
     </div>
@@ -202,16 +226,25 @@ function TopClientsByMRR({
   companies,
   deals,
   contacts,
+  tasks,
+  activity,
+  emailSends,
+  bookings,
 }: {
   companies: Company[]
   deals: Deal[]
   contacts: Array<{ id: string; firstName: string; lastName: string; companyId: string }>
+  tasks: import('../lib/types').Task[]
+  activity: import('../lib/types').Activity[]
+  emailSends: import('../lib/types').EmailSend[]
+  bookings: import('../lib/types').Booking[]
 }) {
   const rows = companies
     .map((c) => ({
       company: c,
       mrr: activeMRRByCompany(deals, c.id),
       primary: contacts.find((ct) => ct.companyId === c.id),
+      health: computeClientHealth(c, { deals, tasks, activity, emailSends, bookings, contacts }),
     }))
     .filter((r) => r.mrr > 0)
     .sort((a, b) => b.mrr - a.mrr)
@@ -238,18 +271,22 @@ function TopClientsByMRR({
         />
       ) : (
         <div className="divide-y divide-[color:var(--border)]">
-          {rows.map(({ company, mrr, primary }) => (
+          {rows.map(({ company, mrr, primary, health }) => (
             <Link
               key={company.id}
               to={`/companies/${company.id}`}
               className="flex items-center gap-3 py-3 px-1 -mx-1 hover:surface-2 rounded-[var(--radius-sm)] transition-colors"
             >
+              <HealthDot tier={health.tier} reason={health.reason} size={8} />
               <Avatar name={company.name} size={34} />
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-medium text-body truncate">{company.name}</div>
                 <div className="text-[11px] text-muted truncate">
                   {company.industry || '—'}
                   {primary && <> · {primary.firstName} {primary.lastName}</>}
+                  {health.daysSinceLastTouch !== null && (
+                    <span className="text-[var(--text-faint)]"> · last touch {health.daysSinceLastTouch}d ago</span>
+                  )}
                 </div>
               </div>
               <div className="text-right shrink-0">
@@ -335,6 +372,92 @@ function ExecBlock({ label, tone, body }: { label: string; tone: 'success' | 'in
     </div>
   )
 }
+
+/* ---------- MRR Trend ---------- */
+
+function MRRTrend({
+  execUpdates,
+  cashflow,
+  currentMRR,
+}: {
+  execUpdates: ExecUpdate[]
+  cashflow: Cashflow[]
+  currentMRR: number
+}) {
+  // Build monthly series from ExecUpdates (savedMRR by period)
+  const sorted = [...execUpdates]
+    .filter((e) => e.period && (e.savedMRR || e.prevMRR))
+    .sort((a, b) => a.period.localeCompare(b.period))
+
+  // Synthesize a current-month entry so the line ends at "today"
+  const nowKey = new Date().toISOString().slice(0, 7).replace('-', '_')
+  const hasCurrent = sorted.some((e) => e.period === nowKey)
+  const series = sorted.map((e) => ({ x: e.period, y: e.savedMRR || 0 }))
+  if (!hasCurrent && currentMRR > 0) series.push({ x: nowKey, y: currentMRR })
+
+  const expenses = cashflow
+    .filter((c) => c.period && c.expenses)
+    .sort((a, b) => a.period.localeCompare(b.period))
+    .map((c) => ({ x: c.period, y: c.expenses }))
+
+  if (series.length < 2) {
+    return null // Not enough data points to plot
+  }
+
+  const peak = Math.max(...series.map((s) => s.y))
+  const low = Math.min(...series.map((s) => s.y))
+
+  return (
+    <Card>
+      <CardHeader
+        title="MRR over time"
+        subtitle={`${formatPeriod(series[0].x, 'MMM yyyy')} → today · peak ${currency(peak, { compact: true })}`}
+        action={
+          <div className="flex items-center gap-3 text-[11px]">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-3 h-0.5 bg-[var(--color-brand-600)]" />
+              <span className="text-muted">MRR</span>
+            </span>
+            {expenses.length > 0 && (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="w-3 h-0.5 bg-[var(--color-warning)]" />
+                <span className="text-muted">Expenses</span>
+              </span>
+            )}
+          </div>
+        }
+      />
+      <div className="pt-2 pb-6">
+        <LineChart
+          height={160}
+          yLabel={(n) => currency(n, { compact: true })}
+          series={[
+            { name: 'MRR', color: 'var(--color-brand-600)', values: series },
+            ...(expenses.length > 0
+              ? [{ name: 'Expenses', color: 'var(--color-warning)', values: expenses }]
+              : []),
+          ]}
+        />
+      </div>
+      <div className="grid grid-cols-3 gap-4 pt-3 border-soft-t">
+        <MiniInline label="Current" value={currency(currentMRR, { compact: true })} />
+        <MiniInline label="Peak" value={currency(peak, { compact: true })} />
+        <MiniInline label="Low" value={currency(low, { compact: true })} />
+      </div>
+    </Card>
+  )
+}
+
+function MiniInline({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)]">{label}</div>
+      <div className="font-display text-[15px] font-semibold tabular text-body mt-0.5">{value}</div>
+    </div>
+  )
+}
+
+void parsePeriod // referenced via imports; keeps TS happy if unused inline
 
 /* ---------- Helpers ---------- */
 
