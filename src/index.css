@@ -1,0 +1,264 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   Hashio CRM — Apple-style design system
+   - Light + dark, auto-follows system, manual override via [data-theme]
+   - SF Pro stack, generous spacing, soft shadows, medium radii
+   ========================================================================== */
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Monaco, "Cascadia Code", monospace;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui,
+    sans-serif;
+
+  /* Brand (Hashio purple) */
+  --color-brand-50:  #f3f0ff;
+  --color-brand-100: #e7e1ff;
+  --color-brand-200: #cfc3ff;
+  --color-brand-300: #b3a1ff;
+  --color-brand-400: #9680ff;
+  --color-brand-500: #7a5eff;
+  --color-brand-600: #6b4ef5;
+  --color-brand-700: #5a3fd8;
+  --color-brand-800: #4832ae;
+  --color-brand-900: #352585;
+
+  /* Status tints */
+  --color-success: #30b36b;
+  --color-warning: #f5a524;
+  --color-danger:  #ef4c4c;
+  --color-info:    #3b82f6;
+
+  /* Radius scale */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-2xl: 22px;
+  --radius-3xl: 28px;
+}
+
+/* ---------- Theme variables (consumed by utility classes via var()) ---------- */
+
+:root {
+  color-scheme: light dark;
+
+  /* Light defaults */
+  --bg:          #fafafa;
+  --bg-elev:     #ffffff;
+  --bg-glass:    rgba(255, 255, 255, 0.72);
+  --bg-raised:   #ffffff;
+  --surface:     #ffffff;
+  --surface-2:   #f4f4f6;
+  --surface-3:   #ebebef;
+
+  --text:        #0a0a0a;
+  --text-muted:  #6b6b74;
+  --text-faint:  #9a9aa3;
+  --text-inverse:#ffffff;
+
+  --border:      rgba(0, 0, 0, 0.06);
+  --border-strong: rgba(0, 0, 0, 0.12);
+  --ring:        rgba(122, 94, 255, 0.35);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.08);
+  --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.08), 0 24px 64px rgba(0, 0, 0, 0.10);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:          #0a0a0a;
+    --bg-elev:     #121214;
+    --bg-glass:    rgba(18, 18, 20, 0.72);
+    --bg-raised:   #17171a;
+    --surface:     #121214;
+    --surface-2:   #17171a;
+    --surface-3:   #1d1d22;
+
+    --text:        #f5f5f7;
+    --text-muted:  #a0a0a8;
+    --text-faint:  #6a6a72;
+    --text-inverse:#0a0a0a;
+
+    --border:      rgba(255, 255, 255, 0.07);
+    --border-strong: rgba(255, 255, 255, 0.13);
+    --ring:        rgba(150, 128, 255, 0.45);
+
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.45);
+    --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.55);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.65);
+    --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.55), 0 24px 64px rgba(0, 0, 0, 0.7);
+  }
+}
+
+/* Explicit overrides (manual toggle via data-theme attr) */
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg:          #fafafa;
+  --bg-elev:     #ffffff;
+  --bg-glass:    rgba(255, 255, 255, 0.72);
+  --bg-raised:   #ffffff;
+  --surface:     #ffffff;
+  --surface-2:   #f4f4f6;
+  --surface-3:   #ebebef;
+  --text:        #0a0a0a;
+  --text-muted:  #6b6b74;
+  --text-faint:  #9a9aa3;
+  --text-inverse:#ffffff;
+  --border:      rgba(0, 0, 0, 0.06);
+  --border-strong: rgba(0, 0, 0, 0.12);
+  --ring:        rgba(122, 94, 255, 0.35);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.08);
+  --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.08), 0 24px 64px rgba(0, 0, 0, 0.10);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:          #0a0a0a;
+  --bg-elev:     #121214;
+  --bg-glass:    rgba(18, 18, 20, 0.72);
+  --bg-raised:   #17171a;
+  --surface:     #121214;
+  --surface-2:   #17171a;
+  --surface-3:   #1d1d22;
+  --text:        #f5f5f7;
+  --text-muted:  #a0a0a8;
+  --text-faint:  #6a6a72;
+  --text-inverse:#0a0a0a;
+  --border:      rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
+  --ring:        rgba(150, 128, 255, 0.45);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.65);
+  --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.55), 0 24px 64px rgba(0, 0, 0, 0.7);
+}
+
+/* ---------- Base element reset ---------- */
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-synthesis: none;
+  letter-spacing: -0.005em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ---------- Typography helpers ---------- */
+
+.font-display { font-family: var(--font-display); letter-spacing: -0.022em; }
+.font-mono    { font-family: var(--font-mono); }
+
+/* Numeric / tabular figures (useful for MRR, dates, dollar amounts) */
+.tabular      { font-variant-numeric: tabular-nums; }
+
+/* ---------- Surfaces ---------- */
+
+.surface       { background: var(--surface); }
+.surface-2     { background: var(--surface-2); }
+.surface-3     { background: var(--surface-3); }
+.bg-app        { background: var(--bg); }
+.bg-elev       { background: var(--bg-elev); }
+
+.bg-glass {
+  background: var(--bg-glass);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+.border-soft  { border: 1px solid var(--border); }
+.border-soft-b { border-bottom: 1px solid var(--border); }
+.border-soft-t { border-top: 1px solid var(--border); }
+.border-soft-r { border-right: 1px solid var(--border); }
+.border-soft-l { border-left: 1px solid var(--border); }
+
+.shadow-soft-xs  { box-shadow: var(--shadow-xs); }
+.shadow-soft-sm  { box-shadow: var(--shadow-sm); }
+.shadow-soft-md  { box-shadow: var(--shadow-md); }
+.shadow-soft-lg  { box-shadow: var(--shadow-lg); }
+.shadow-soft-xl  { box-shadow: var(--shadow-xl); }
+
+.text-body     { color: var(--text); }
+.text-muted    { color: var(--text-muted); }
+.text-faint    { color: var(--text-faint); }
+.text-inverse  { color: var(--text-inverse); }
+
+/* ---------- Scrollbars (mac-style) ---------- */
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+
+/* ---------- Selection ---------- */
+::selection {
+  background: var(--color-brand-200);
+  color: var(--color-brand-900);
+}
+@media (prefers-color-scheme: dark) {
+  ::selection { background: var(--color-brand-700); color: #fff; }
+}
+
+/* ---------- Animations ---------- */
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fade-in 180ms ease-out both; }
+
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 var(--ring); }
+  70%  { box-shadow: 0 0 0 8px rgba(0,0,0,0); }
+  100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+}
+.animate-pulse-ring { animation: pulse-ring 1.6s ease-out infinite; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
