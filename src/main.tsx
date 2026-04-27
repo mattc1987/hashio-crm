@@ -7,9 +7,13 @@ import { initTheme } from './lib/theme'
 
 initTheme()
 
+// Strip trailing slash off Vite's BASE_URL so React Router's basename matches
+// (e.g. '/hashio-crm/' → '/hashio-crm'; '/' → undefined).
+const basename = import.meta.env.BASE_URL.replace(/\/$/, '') || undefined
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <App />
     </BrowserRouter>
   </StrictMode>,

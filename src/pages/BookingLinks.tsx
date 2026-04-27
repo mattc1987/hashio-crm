@@ -160,7 +160,7 @@ export function BookingLinks() {
 }
 
 function BookingLinkRow({ link, bookingCount }: { link: BookingLink; bookingCount: number }) {
-  const publicUrl = `${window.location.origin}/book/${link.slug}`
+  const publicUrl = `${window.location.origin}${import.meta.env.BASE_URL}book/${link.slug}`
   const copyLink = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()

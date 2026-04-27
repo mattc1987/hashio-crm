@@ -53,7 +53,7 @@ export function BookingLinkEditor() {
     )
   }
 
-  const publicUrl = `${window.location.origin}/book/${link.slug}`
+  const publicUrl = `${window.location.origin}${import.meta.env.BASE_URL}book/${link.slug}`
   const set = <K extends keyof BookingLink>(k: K, v: BookingLink[K]) =>
     api.bookingLink.update({ id: link.id, [k]: v })
 
