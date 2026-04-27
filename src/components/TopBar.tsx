@@ -45,21 +45,21 @@ export function TopBar({
         <div className="font-display font-semibold text-[15px] text-body truncate">{label}</div>
       </div>
 
-      <div className="hidden md:block relative max-w-sm flex-1">
-        <Search
-          size={14}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] pointer-events-none"
-        />
-        <input
-          type="search"
-          placeholder="Search…"
-          className={cn(
-            'surface border-soft w-full h-9 pl-9 pr-3 text-[13px] rounded-[var(--radius-md)]',
-            'text-body placeholder:text-[var(--text-faint)]',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
-          )}
-        />
-      </div>
+      <button
+        onClick={() => {
+          // Programmatic Cmd+K trigger so the search box still feels clickable.
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+        }}
+        className={cn(
+          'hidden md:flex items-center gap-3 surface border-soft max-w-sm flex-1 h-9 px-3',
+          'text-[13px] rounded-[var(--radius-md)] text-[var(--text-faint)] hover:text-muted transition-colors',
+        )}
+        title="Search (⌘K)"
+      >
+        <Search size={14} />
+        <span className="flex-1 text-left">Search anything…</span>
+        <kbd className="font-mono surface-2 border-soft px-1.5 py-0.5 text-[10px] rounded">⌘K</kbd>
+      </button>
 
       <ThemeToggle />
 

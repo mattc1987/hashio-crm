@@ -3,6 +3,7 @@ import { Outlet, useLocation, Link } from 'react-router-dom'
 import { CloudOff } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
+import { CommandPalette } from './CommandPalette'
 import { useSheet } from '../lib/useSheet'
 import { SheetDataContext } from '../lib/sheet-context'
 import { hasWriteBackend } from '../lib/api'
@@ -32,6 +33,7 @@ export function AppShell() {
 
   return (
     <SheetDataContext.Provider value={{ state, refresh }}>
+      <CommandPalette />
       <div className="min-h-screen bg-app text-body">
         {/* Desktop sidebar (fixed) */}
         <div
