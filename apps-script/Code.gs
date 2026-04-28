@@ -221,6 +221,27 @@ function handle_(e) {
         break;
       }
 
+      case 'setTwilioConfig': {
+        // Save Twilio credentials to Script Properties. Auth-required.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = setTwilioConfig_(payload);
+        break;
+      }
+
+      case 'getTwilioStatus': {
+        out.ok = true;
+        out.data = getTwilioStatus_();
+        break;
+      }
+
+      case 'sendTestSms': {
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = sendTestSms_(payload.to, payload.body);
+        break;
+      }
+
       case 'ingestLead': {
         // Public lead-ingest webhook. Accepts lead data from any source
         // (Teamfluence, Apollo, Clay, Zapier, n8n, custom scripts).
@@ -668,6 +689,98 @@ function advanceEnrollment_(enrollment) {
       throw new Error('Unknown step type: ' + step.type);
   }
 }
+
+/* ---------- Twilio configuration ---------- */
+/* Lets the CRM Settings page configure Twilio without touching the
+ * Apps Script editor. Credentials live in Script Properties — same as
+ * before — but now you can write/read them via the API.
+ *
+ * setTwilioConfig({sid, token, from})    → stores all three
+ * getTwilioStatus()                       → { configured, sid (last 4), from, balance, accountSid }
+ * sendTestSms(to, body)                   → sends a one-off test message
+ */
+
+function setTwilioConfig_(payload) {
+  const props = PropertiesService.getScriptProperties();
+  if (payload.sid)   props.setProperty('TWILIO_SID',   String(payload.sid).trim());
+  if (payload.token) props.setProperty('TWILIO_TOKEN', String(payload.token).trim());
+  if (payload.from)  props.setProperty('TWILIO_FROM',  String(payload.from).trim());
+
+  // After saving, return fresh status for the UI to display
+  return getTwilioStatus_();
+}
+
+function getTwilioStatus_() {
+  const props = PropertiesService.getScriptProperties();
+  const sid = props.getProperty('TWILIO_SID') || '';
+  const token = props.getProperty('TWILIO_TOKEN') || '';
+  const from = props.getProperty('TWILIO_FROM') || '';
+  const configured = !!(sid && token && from);
+
+  let balance = '';
+  let connectionOk = false;
+  let connectionError = '';
+  let accountFriendlyName = '';
+
+  if (configured) {
+    try {
+      const url = 'https://api.twilio.com/2010-04-01/Accounts/' + sid + '/Balance.json';
+      const res = UrlFetchApp.fetch(url, {
+        method: 'get',
+        headers: { Authorization: 'Basic ' + Utilities.base64Encode(sid + ':' + token) },
+        muteHttpExceptions: true,
+      });
+      if (res.getResponseCode() === 200) {
+        const json = JSON.parse(res.getContentText());
+        balance = (json.balance ? '$' + json.balance : '') + (json.currency ? ' ' + json.currency : '');
+        connectionOk = true;
+      } else {
+        connectionError = 'HTTP ' + res.getResponseCode();
+      }
+
+      // Also fetch account info for friendly name
+      const accUrl = 'https://api.twilio.com/2010-04-01/Accounts/' + sid + '.json';
+      const accRes = UrlFetchApp.fetch(accUrl, {
+        method: 'get',
+        headers: { Authorization: 'Basic ' + Utilities.base64Encode(sid + ':' + token) },
+        muteHttpExceptions: true,
+      });
+      if (accRes.getResponseCode() === 200) {
+        const accJson = JSON.parse(accRes.getContentText());
+        accountFriendlyName = accJson.friendly_name || '';
+      }
+    } catch (err) {
+      connectionError = String(err && err.message || err);
+    }
+  }
+
+  return {
+    configured: configured,
+    sidMasked: sid ? '••••' + sid.slice(-4) : '',
+    sidFull: configured ? sid : '',
+    from: from,
+    balance: balance,
+    accountFriendlyName: accountFriendlyName,
+    connectionOk: connectionOk,
+    connectionError: connectionError,
+  };
+}
+
+function sendTestSms_(to, body) {
+  if (!to) throw new Error('Missing "to" phone number');
+  const finalBody = body || 'Test from your Hashio CRM — Twilio is wired up. 🎉';
+
+  // Reuse the sequence-send infra so it gets logged the same way
+  return sendSequenceSms_({
+    enrollmentId: '',
+    sequenceId: '',
+    stepId: '',
+    contactId: '',
+    to: to,
+    body: finalBody,
+  });
+}
+
 
 /* ---------- SMS via Twilio ---------- */
 

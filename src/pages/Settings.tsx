@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Sun, Moon, Monitor, AlertCircle, CheckCircle2, ExternalLink, Flame, Copy } from 'lucide-react'
+import { TwilioConfig } from '../components/settings/TwilioConfig'
 import { Card, CardHeader, PageHeader, Badge } from '../components/ui'
 import { getThemePref, setThemePref, type ThemePref } from '../lib/theme'
 import { hasWriteBackend } from '../lib/api'
@@ -108,6 +109,8 @@ export function Settings() {
           Google sign-in is planned for the next drop. Today the app reads directly from the Sheet — deploy SETUP.md to add sign-in.
         </div>
       </Card>
+
+      <TwilioConfig />
 
       <Card>
         <CardHeader
