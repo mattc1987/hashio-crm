@@ -58,6 +58,7 @@ const TABS = {
   notes:          'Notes',
   activityLogs:   'ActivityLogs',
   leads:          'Leads',
+  smsSends:       'SmsSends',
 };
 
 /** Canonical header set per entity. Used by ensureHeaders / ensureTabs to
@@ -82,6 +83,7 @@ const KNOWN_HEADERS_ = {
   notes:         ['id','entityType','entityId','body','author','createdAt','updatedAt'],
   activityLogs:  ['id','entityType','entityId','kind','outcome','body','durationMinutes','occurredAt','createdAt','author'],
   leads:         ['id','source','externalId','firstName','lastName','email','linkedinUrl','headline','title','companyName','companyLinkedinUrl','companyDomain','companyIndustry','companySize','location','engagementSignals','temperature','score','status','notes','convertedContactId','createdAt','lastSignalAt'],
+  smsSends:      ['id','enrollmentId','sequenceId','stepId','contactId','to','from','body','twilioSid','status','errorMessage','sentAt','deliveredAt','repliedAt'],
 };
 
 /** Add any missing fields as new header columns on the given entity's tab.
@@ -574,6 +576,26 @@ function advanceEnrollment_(enrollment) {
   const ctx = { contact: contact, deal: deal, company: company };
 
   switch (step.type) {
+    case 'sms': {
+      if (!contact.phone) throw new Error('Contact has no phone: ' + contact.id);
+      const smsBody = resolveMergeTags_(config.body, ctx);
+      const sendResult = sendSequenceSms_({
+        enrollmentId: enrollment.id,
+        sequenceId: enrollment.sequenceId,
+        stepId: step.id,
+        contactId: contact.id,
+        to: contact.phone,
+        body: smsBody,
+      });
+      return {
+        currentStepIndex: stepIdx + 1,
+        lastFiredAt: now.toISOString(),
+        nextFireAt: now.toISOString(),
+        status: stepIdx + 1 >= steps.length ? 'completed' : 'active',
+        notes: 'Sent SMS: ' + (sendResult.sid || smsBody.slice(0, 40)),
+      };
+    }
+
     case 'email': {
       if (!contact.email) throw new Error('Contact has no email: ' + contact.id);
       const subject = resolveMergeTags_(config.subject, ctx);
@@ -645,6 +667,80 @@ function advanceEnrollment_(enrollment) {
     default:
       throw new Error('Unknown step type: ' + step.type);
   }
+}
+
+/* ---------- SMS via Twilio ---------- */
+
+function sendSequenceSms_(opts) {
+  const sid = PropertiesService.getScriptProperties().getProperty('TWILIO_SID');
+  const token = PropertiesService.getScriptProperties().getProperty('TWILIO_TOKEN');
+  const from = PropertiesService.getScriptProperties().getProperty('TWILIO_FROM');
+  if (!sid || !token || !from) {
+    throw new Error('Twilio not configured. Set TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM in Apps Script Project Settings.');
+  }
+
+  const url = 'https://api.twilio.com/2010-04-01/Accounts/' + sid + '/Messages.json';
+  const formData = {
+    From: from,
+    To: opts.to,
+    Body: opts.body,
+  };
+
+  let twilioSid = '';
+  let status = 'sent';
+  let errorMessage = '';
+
+  try {
+    const res = UrlFetchApp.fetch(url, {
+      method: 'post',
+      payload: formData,
+      headers: {
+        Authorization: 'Basic ' + Utilities.base64Encode(sid + ':' + token),
+      },
+      muteHttpExceptions: true,
+    });
+    const respCode = res.getResponseCode();
+    const json = JSON.parse(res.getContentText());
+    if (respCode >= 200 && respCode < 300) {
+      twilioSid = json.sid || '';
+      status = json.status || 'sent';
+    } else {
+      status = 'failed';
+      errorMessage = json.message || ('HTTP ' + respCode);
+    }
+  } catch (err) {
+    status = 'failed';
+    errorMessage = String(err && err.message || err);
+  }
+
+  // Log to SmsSends
+  const sheet = getSpreadsheet_().getSheetByName('SmsSends');
+  if (sheet) {
+    const headers = sheet.getDataRange().getValues()[0].map(String);
+    const id = 'sm' + Utilities.getUuid().replace(/-/g, '').slice(0, 10);
+    const row = {
+      id: id,
+      enrollmentId: opts.enrollmentId,
+      sequenceId: opts.sequenceId,
+      stepId: opts.stepId,
+      contactId: opts.contactId,
+      to: opts.to,
+      from: from,
+      body: opts.body,
+      twilioSid: twilioSid,
+      status: status,
+      errorMessage: errorMessage,
+      sentAt: new Date().toISOString(),
+      deliveredAt: '',
+      repliedAt: '',
+    };
+    sheet.appendRow(headers.map(function (h) { return row[h] === undefined ? '' : row[h]; }));
+  }
+
+  if (status === 'failed') {
+    throw new Error('Twilio: ' + errorMessage);
+  }
+  return { sid: twilioSid, status: status };
 }
 
 function sendSequenceEmail_(opts) {

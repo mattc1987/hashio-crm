@@ -122,7 +122,7 @@ export interface ExecUpdate {
 
 export type SequenceStatus = 'draft' | 'active' | 'paused' | 'archived'
 
-export type StepType = 'email' | 'wait' | 'branch' | 'action'
+export type StepType = 'email' | 'sms' | 'wait' | 'branch' | 'action'
 
 /** Each step's `config` is a JSON string. Shape depends on `type`. */
 export interface StepConfigEmail {
@@ -131,6 +131,12 @@ export interface StepConfigEmail {
   body: string // markdown-ish; supports {{firstName}}, {{company}}, etc.
   trackOpens?: boolean
   replyBehavior?: 'exit' | 'continue' // default: 'exit' — replies stop the sequence
+}
+
+export interface StepConfigSms {
+  body: string                       // SMS text (supports merge tags). Keep <= 1600 chars.
+  mediaUrl?: string                  // Optional MMS image URL
+  replyBehavior?: 'exit' | 'continue' // default: 'exit'
 }
 
 export interface StepConfigWait {
@@ -166,6 +172,7 @@ export interface StepConfigAction {
 
 export type StepConfig =
   | StepConfigEmail
+  | StepConfigSms
   | StepConfigWait
   | StepConfigBranch
   | StepConfigAction
@@ -401,6 +408,27 @@ export interface ActivityLog {
   author: string
 }
 
+/* ============================================================
+   SMS sends (mirrors EmailSends but for Twilio-sent texts)
+   ============================================================ */
+
+export interface SmsSend {
+  id: string
+  enrollmentId: string
+  sequenceId: string
+  stepId: string
+  contactId: string
+  to: string                  // E.164 phone number
+  from: string
+  body: string
+  twilioSid: string           // Twilio message SID
+  status: 'queued' | 'sent' | 'delivered' | 'failed' | 'undelivered'
+  errorMessage: string
+  sentAt: string
+  deliveredAt: string
+  repliedAt: string
+}
+
 export interface SheetData {
   companies: Company[]
   contacts: Contact[]
@@ -420,5 +448,6 @@ export interface SheetData {
   notes: Note[]
   activityLogs: ActivityLog[]
   leads: Lead[]
+  smsSends: SmsSend[]
   fetchedAt: string
 }

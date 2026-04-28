@@ -13,6 +13,7 @@ import type {
   StepConfigAction,
   StepConfigBranch,
   StepConfigEmail,
+  StepConfigSms,
   StepConfigWait,
   StepType,
 } from './types'
@@ -39,6 +40,11 @@ export function defaultStepConfig(type: StepType): StepConfig {
         trackOpens: true,
         replyBehavior: 'exit',
       } satisfies StepConfigEmail
+    case 'sms':
+      return {
+        body: '',
+        replyBehavior: 'exit',
+      } satisfies StepConfigSms
     case 'wait':
       return { amount: 2, unit: 'days' } satisfies StepConfigWait
     case 'branch':

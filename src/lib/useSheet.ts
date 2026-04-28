@@ -30,6 +30,7 @@ function applyLocalCache(data: SheetData): SheetData {
     notes:          mergeLocal('notes',          data.notes),
     activityLogs:   mergeLocal('activityLogs',   data.activityLogs),
     leads:          mergeLocal('leads',          data.leads),
+    smsSends:       mergeLocal('smsSends',       data.smsSends),
   }
 }
 

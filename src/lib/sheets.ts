@@ -24,6 +24,7 @@ import type {
   Sequence,
   SequenceStep,
   SheetData,
+  SmsSend,
   Task,
 } from './types'
 
@@ -307,6 +308,25 @@ function mapActivityLogs(rows: Record<string, string>[]): ActivityLog[] {
   }))
 }
 
+function mapSmsSends(rows: Record<string, string>[]): SmsSend[] {
+  return rows.map((r) => ({
+    id: r.id,
+    enrollmentId: r.enrollmentId || '',
+    sequenceId: r.sequenceId || '',
+    stepId: r.stepId || '',
+    contactId: r.contactId || '',
+    to: r.to || '',
+    from: r.from || '',
+    body: r.body || '',
+    twilioSid: r.twilioSid || '',
+    status: (r.status as SmsSend['status']) || 'sent',
+    errorMessage: r.errorMessage || '',
+    sentAt: r.sentAt || '',
+    deliveredAt: r.deliveredAt || '',
+    repliedAt: r.repliedAt || '',
+  }))
+}
+
 function mapLeads(rows: Record<string, string>[]): Lead[] {
   return rows.map((r) => ({
     id: r.id,
@@ -357,6 +377,7 @@ export async function loadAll(): Promise<SheetData> {
     noteRows,
     activityLogRows,
     leadRows,
+    smsSendRows,
   ] = await Promise.all([
     fetchTab('Companies'),
     fetchTab('Contacts'),
@@ -376,6 +397,7 @@ export async function loadAll(): Promise<SheetData> {
     fetchTab('Notes').catch(() => []),
     fetchTab('ActivityLogs').catch(() => []),
     fetchTab('Leads').catch(() => []),
+    fetchTab('SmsSends').catch(() => []),
   ])
 
   return {
@@ -397,6 +419,7 @@ export async function loadAll(): Promise<SheetData> {
     notes: mapNotes(noteRows),
     activityLogs: mapActivityLogs(activityLogRows),
     leads: mapLeads(leadRows),
+    smsSends: mapSmsSends(smsSendRows),
     fetchedAt: new Date().toISOString(),
   }
 }

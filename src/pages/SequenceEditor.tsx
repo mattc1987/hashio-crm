@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   Mail,
+  MessageSquare,
   Clock,
   GitBranch,
   Bolt,
@@ -38,6 +39,7 @@ import type {
   StepConfigAction,
   StepConfigBranch,
   StepConfigEmail,
+  StepConfigSms,
   StepConfigWait,
   StepType,
 } from '../lib/types'
@@ -45,6 +47,7 @@ import { cn } from '../lib/cn'
 
 const STEP_TYPES: Array<{ type: StepType; label: string; icon: React.ReactNode; desc: string }> = [
   { type: 'email',  label: 'Send email',    icon: <Mail size={14} />,   desc: 'Sends from your Gmail via Apps Script' },
+  { type: 'sms',    label: 'Send SMS',      icon: <MessageSquare size={14} />, desc: 'Sends a text via Twilio (requires config)' },
   { type: 'wait',   label: 'Wait',          icon: <Clock size={14} />,  desc: 'Pause before the next step' },
   { type: 'branch', label: 'If / then',     icon: <GitBranch size={14} />, desc: 'Take a different path based on a signal' },
   { type: 'action', label: 'Take action',   icon: <Bolt size={14} />,   desc: 'Create a task, stop the sequence, etc.' },
@@ -321,6 +324,9 @@ function StepEditor({
         {step.type === 'email' && (
           <EmailStepEditor config={config as StepConfigEmail} onChange={(c) => onPatch({ configObj: c })} />
         )}
+        {step.type === 'sms' && (
+          <SmsStepEditor config={config as StepConfigSms} onChange={(c) => onPatch({ configObj: c })} />
+        )}
         {step.type === 'wait' && (
           <WaitStepEditor config={config as StepConfigWait} onChange={(c) => onPatch({ configObj: c })} />
         )}
@@ -415,6 +421,68 @@ function EmailStepEditor({ config, onChange }: { config: StepConfigEmail; onChan
       </div>
 
       <MergeTagPalette />
+    </div>
+  )
+}
+
+/* ---------- SMS step ---------- */
+
+function SmsStepEditor({ config, onChange }: { config: StepConfigSms; onChange: (c: StepConfigSms) => void }) {
+  const charCount = (config.body || '').length
+  const isLong = charCount > 160
+  const segments = Math.ceil(charCount / (isLong ? 153 : 160))
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Callout>
+        <strong>SMS step</strong> sends a text via Twilio to the contact's phone number.
+        First-time setup: in Apps Script, set Script Properties{' '}
+        <code className="font-mono">TWILIO_SID</code>,{' '}
+        <code className="font-mono">TWILIO_TOKEN</code>, and{' '}
+        <code className="font-mono">TWILIO_FROM</code> (your verified Twilio number, e.g. <code className="font-mono">+15125551234</code>).
+        Cost ≈ $0.008 per message.
+      </Callout>
+
+      <Field label="Message body" hint={`${charCount}/${isLong ? '1600' : '160'} chars · ${segments} SMS segment${segments === 1 ? '' : 's'}`}>
+        <Textarea
+          value={config.body}
+          onChange={(e) => onChange({ ...config, body: e.target.value })}
+          placeholder={"Hi {{firstName}}, quick follow-up — got 15 min this week? - Matt"}
+          rows={5}
+        />
+      </Field>
+
+      <div className="flex items-center justify-between text-[12px]">
+        <label className="flex items-center gap-2 text-muted cursor-pointer select-none">
+          <span>On reply:</span>
+          <select
+            value={config.replyBehavior ?? 'exit'}
+            onChange={(e) => onChange({ ...config, replyBehavior: e.target.value as 'exit' | 'continue' })}
+            className="surface border-soft rounded-[var(--radius-sm)] px-2 py-1 text-[12px]"
+          >
+            <option value="exit">Stop the sequence</option>
+            <option value="continue">Continue</option>
+          </select>
+        </label>
+        <span className="text-[var(--text-faint)]">SMS replies arrive in your Twilio inbox</span>
+      </div>
+
+      <MergeTagPalette />
+
+      {/* Live phone preview */}
+      <div className="flex justify-center pt-2">
+        <div className="w-[280px] surface-2 rounded-[28px] border-soft p-4 shadow-soft-sm">
+          <div className="text-[10px] text-center text-[var(--text-faint)] mb-2">Preview</div>
+          <div className="flex flex-col gap-1.5">
+            <div className="self-start max-w-[85%] bg-[var(--surface-3)] text-body text-[12px] px-3 py-2 rounded-2xl rounded-bl-md">
+              {config.body || <em className="text-muted">Type your message above…</em>}
+            </div>
+            <div className="text-[9px] text-center text-[var(--text-faint)] mt-1">
+              {segments} segment{segments === 1 ? '' : 's'} · {charCount} chars
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -716,11 +784,13 @@ function Callout({ children }: { children: React.ReactNode }) {
 function StepIcon({ type }: { type: StepType }) {
   const icon =
     type === 'email'  ? <Mail size={14} /> :
+    type === 'sms'    ? <MessageSquare size={14} /> :
     type === 'wait'   ? <Clock size={14} /> :
     type === 'branch' ? <GitBranch size={14} /> :
                         <Bolt size={14} />
   const color =
     type === 'email'  ? 'bg-[color:rgba(122,94,255,0.14)] text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)]' :
+    type === 'sms'    ? 'bg-[color:rgba(48,179,107,0.14)] text-[var(--color-success)]' :
     type === 'wait'   ? 'bg-[color:rgba(245,165,36,0.12)] text-[var(--color-warning)]' :
     type === 'branch' ? 'bg-[color:rgba(59,130,246,0.12)] text-[var(--color-info)]' :
                         'bg-[color:rgba(48,179,107,0.12)] text-[var(--color-success)]'
@@ -732,6 +802,10 @@ function StepSubtitle({ step }: { step: SequenceStep }) {
   if (step.type === 'email') {
     const c = config as StepConfigEmail
     return <>{c.subject || <em>No subject</em>}</>
+  }
+  if (step.type === 'sms') {
+    const c = config as StepConfigSms
+    return <>{c.body ? c.body.slice(0, 60) + (c.body.length > 60 ? '…' : '') : <em>Empty SMS</em>}</>
   }
   if (step.type === 'wait') {
     const c = config as StepConfigWait
@@ -831,6 +905,8 @@ function defaultLabel(type: StepType, idx: number): string {
   switch (type) {
     case 'email':
       return `Step ${n} — Email`
+    case 'sms':
+      return `Step ${n} — SMS`
     case 'wait':
       return `Wait`
     case 'branch':
