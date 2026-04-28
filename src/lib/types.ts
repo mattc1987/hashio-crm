@@ -297,6 +297,50 @@ export interface Note {
   updatedAt: string
 }
 
+/* ============================================================
+   Activity logs (manual call/text/meeting entries)
+   Separate from auto-tracked email sends — these are things
+   Matt or the team logs by hand: "called Jane, left voicemail"
+   etc.
+   ============================================================ */
+
+export type ActivityLogKind =
+  | 'call-outbound'
+  | 'call-inbound'
+  | 'text-outbound'
+  | 'text-inbound'
+  | 'meeting'
+  | 'voicemail'
+  | 'linkedin-message'
+  | 'other'
+
+export type ActivityLogOutcome =
+  | 'connected'
+  | 'no-answer'
+  | 'left-voicemail'
+  | 'replied'
+  | 'no-reply'
+  | 'completed'
+  | ''
+
+export interface ActivityLog {
+  id: string
+  /** Which entity this log attaches to. */
+  entityType: 'contact' | 'company' | 'deal'
+  entityId: string
+  kind: ActivityLogKind
+  outcome: ActivityLogOutcome
+  /** Free-text summary the user types. */
+  body: string
+  /** Optional duration for calls/meetings (in minutes). */
+  durationMinutes: number
+  /** When the activity actually happened (user-set). */
+  occurredAt: string
+  /** When the log was created in the CRM. */
+  createdAt: string
+  author: string
+}
+
 export interface SheetData {
   companies: Company[]
   contacts: Contact[]
@@ -314,5 +358,6 @@ export interface SheetData {
   bookingLinks: BookingLink[]
   bookings: Booking[]
   notes: Note[]
+  activityLogs: ActivityLog[]
   fetchedAt: string
 }

@@ -12,7 +12,6 @@ export function Contacts() {
   const { state, refresh } = useSheetData()
   const [query, setQuery] = useState('')
   const [tagFilter, setTagFilter] = useState<string>('')
-  const [editing, setEditing] = useState<Contact | null>(null)
   const [creating, setCreating] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [enrollFor, setEnrollFor] = useState<string | null>(null) // contact id for single-enroll popover
@@ -181,7 +180,6 @@ export function Contacts() {
                 key={c.id}
                 contact={c}
                 company={companyById(c.companyId)}
-                onClick={() => setEditing(c)}
                 selected={selectedIds.has(c.id)}
                 onToggleSelect={() => toggleSelect(c.id)}
                 onEnrollClick={() => setEnrollFor(enrollFor === c.id ? null : c.id)}
@@ -209,10 +207,10 @@ export function Contacts() {
       )}
 
       <ContactEditor
-        open={creating || !!editing}
-        initial={editing}
+        open={creating}
+        initial={null}
         companies={companies}
-        onClose={() => { setCreating(false); setEditing(null) }}
+        onClose={() => setCreating(false)}
         onSaved={() => { refresh() }}
       />
     </div>
@@ -220,14 +218,13 @@ export function Contacts() {
 }
 
 function ContactRow({
-  contact, company, onClick,
+  contact, company,
   selected, onToggleSelect,
   onEnrollClick, showEnrollPopover,
   sequences, onPickSequence, onClosePopover,
 }: {
   contact: Contact
   company?: Company
-  onClick: () => void
   selected: boolean
   onToggleSelect: () => void
   onEnrollClick: () => void
@@ -261,8 +258,8 @@ function ContactRow({
           </svg>
         )}
       </button>
-      <button
-        onClick={onClick}
+      <Link
+        to={`/contacts/${contact.id}`}
         className="flex items-center gap-4 flex-1 text-left min-w-0"
       >
       <Avatar firstName={contact.firstName} lastName={contact.lastName} size={36} />
@@ -327,7 +324,7 @@ function ContactRow({
         )}
       </div>
       <ChevronRight size={15} className="text-[var(--text-faint)] group-hover:text-body transition-colors" />
-      </button>
+      </Link>
 
       {/* Inline enroll-in-sequence button + popover */}
       <div className="relative shrink-0">

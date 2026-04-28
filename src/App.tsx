@@ -5,6 +5,8 @@ import { Deals } from './pages/Deals'
 import { Companies } from './pages/Companies'
 import { CompanyDetail } from './pages/CompanyDetail'
 import { Contacts } from './pages/Contacts'
+import { ContactDetail } from './pages/ContactDetail'
+import { DealDetail } from './pages/DealDetail'
 import { Tasks } from './pages/Tasks'
 import { ExecUpdates } from './pages/ExecUpdates'
 import { Import } from './pages/Import'
@@ -28,9 +30,11 @@ export default function App() {
       <Route element={<AppShell />}>
         <Route index element={<Dashboard />} />
         <Route path="/deals" element={<Deals />} />
+        <Route path="/deals/:id" element={<DealDetail />} />
         <Route path="/companies" element={<Companies />} />
         <Route path="/companies/:id" element={<CompanyDetail />} />
         <Route path="/contacts" element={<Contacts />} />
+        <Route path="/contacts/:id" element={<ContactDetail />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/sequences" element={<Sequences />} />
         <Route path="/sequences/:id" element={<SequenceEditor />} />

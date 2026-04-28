@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { Plus, Search, Briefcase, ChevronRight, List, LayoutGrid } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, Badge, Button, Input, PageHeader, Empty, Skeleton } from '../components/ui'
@@ -139,7 +140,6 @@ export function Deals() {
                   deal={d}
                   companyName={companyName(d.companyId)}
                   contactName={contactName(d.contactId)}
-                  onClick={() => setEditing(d)}
                 />
               ))}
             </div>
@@ -149,7 +149,6 @@ export function Deals() {
         <KanbanBoard
           deals={deals}
           companyName={companyName}
-          onEdit={setEditing}
           onMove={(dealId, newStage) => {
             api.deal.update({ id: dealId, stage: newStage })
             // Local cache reactivity handles re-render; refresh syncs Sheet
@@ -198,18 +197,16 @@ function DealRow({
   deal,
   companyName,
   contactName,
-  onClick,
 }: {
   deal: Deal
   companyName: string
   contactName: string
-  onClick: () => void
 }) {
   const tone = stageTone(deal.stage)
   const mrr = monthlyMRR(deal)
   return (
-    <button
-      onClick={onClick}
+    <Link
+      to={`/deals/${deal.id}`}
       className="flex items-center gap-4 px-4 py-3 hover:surface-2 transition-colors group w-full text-left"
     >
       <div className="min-w-0 flex-1">
@@ -230,7 +227,7 @@ function DealRow({
         {mrr > 0 && <div className="text-[11px] text-muted tabular">{currency(mrr)}/mo</div>}
       </div>
       <ChevronRight size={15} className="text-[var(--text-faint)] group-hover:text-body transition-colors" />
-    </button>
+    </Link>
   )
 }
 
@@ -252,14 +249,13 @@ const KANBAN_STAGES = ['Lead', 'Qualified', 'Demo', 'Proposal', 'Negotiation', '
 function KanbanBoard({
   deals,
   companyName,
-  onEdit,
   onMove,
 }: {
   deals: Deal[]
   companyName: (id: string) => string
-  onEdit: (deal: Deal) => void
   onMove: (dealId: string, newStage: string) => void
 }) {
+  const navigate = useNavigate()
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [overStage, setOverStage] = useState<string | null>(null)
 
@@ -320,7 +316,7 @@ function KanbanBoard({
                       key={d.id}
                       deal={d}
                       companyName={companyName(d.companyId)}
-                      onEdit={() => onEdit(d)}
+                      onClick={() => navigate(`/deals/${d.id}`)}
                       onDragStart={() => setDraggedId(d.id)}
                       onDragEnd={() => { setDraggedId(null); setOverStage(null) }}
                       isDragging={draggedId === d.id}
@@ -339,14 +335,14 @@ function KanbanBoard({
 function KanbanCard({
   deal,
   companyName,
-  onEdit,
+  onClick,
   onDragStart,
   onDragEnd,
   isDragging,
 }: {
   deal: Deal
   companyName: string
-  onEdit: () => void
+  onClick: () => void
   onDragStart: () => void
   onDragEnd: () => void
   isDragging: boolean
@@ -357,7 +353,7 @@ function KanbanCard({
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onClick={onEdit}
+      onClick={onClick}
       className={cn(
         'surface border-soft rounded-[var(--radius-md)] p-3 cursor-pointer hover:shadow-soft-sm transition-all',
         isDragging && 'opacity-50',

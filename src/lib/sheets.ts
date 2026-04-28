@@ -7,6 +7,7 @@
 import Papa from 'papaparse'
 import type {
   Activity,
+  ActivityLog,
   Booking,
   BookingLink,
   Cashflow,
@@ -290,6 +291,21 @@ function mapNotes(rows: Record<string, string>[]): Note[] {
   }))
 }
 
+function mapActivityLogs(rows: Record<string, string>[]): ActivityLog[] {
+  return rows.map((r) => ({
+    id: r.id,
+    entityType: (r.entityType as ActivityLog['entityType']) || 'contact',
+    entityId: r.entityId || '',
+    kind: (r.kind as ActivityLog['kind']) || 'other',
+    outcome: (r.outcome as ActivityLog['outcome']) || '',
+    body: r.body || '',
+    durationMinutes: toNum(r.durationMinutes),
+    occurredAt: r.occurredAt || r.createdAt || '',
+    createdAt: r.createdAt || '',
+    author: r.author || '',
+  }))
+}
+
 // ---------- Entry point ----------
 
 export async function loadAll(): Promise<SheetData> {
@@ -310,6 +326,7 @@ export async function loadAll(): Promise<SheetData> {
     bookingLinkRows,
     bookingRows,
     noteRows,
+    activityLogRows,
   ] = await Promise.all([
     fetchTab('Companies'),
     fetchTab('Contacts'),
@@ -327,6 +344,7 @@ export async function loadAll(): Promise<SheetData> {
     fetchTab('BookingLinks').catch(() => []),
     fetchTab('Bookings').catch(() => []),
     fetchTab('Notes').catch(() => []),
+    fetchTab('ActivityLogs').catch(() => []),
   ])
 
   return {
@@ -346,6 +364,7 @@ export async function loadAll(): Promise<SheetData> {
     bookingLinks: mapBookingLinks(bookingLinkRows),
     bookings: mapBookings(bookingRows),
     notes: mapNotes(noteRows),
+    activityLogs: mapActivityLogs(activityLogRows),
     fetchedAt: new Date().toISOString(),
   }
 }

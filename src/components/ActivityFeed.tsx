@@ -6,6 +6,7 @@ import { useMemo } from 'react'
 import {
   StickyNote, Mail, MailOpen, MousePointerClick, Reply,
   CheckSquare, Calendar, Zap, AlertCircle, FileText,
+  Phone, MessageSquare, Users as UsersIcon, Voicemail, Link2,
 } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, CardHeader } from './ui'
@@ -16,6 +17,9 @@ interface ActivityEvent {
   id: string
   type: 'note' | 'email-sent' | 'email-opened' | 'email-clicked' | 'email-replied'
         | 'task-created' | 'task-completed' | 'booking' | 'enrollment'
+        | 'log-call-out' | 'log-call-in' | 'log-voicemail'
+        | 'log-text-out' | 'log-text-in'
+        | 'log-meeting' | 'log-linkedin' | 'log-other'
   ts: string
   title: string
   description?: string
@@ -136,6 +140,23 @@ export function ActivityFeed({
       })
     }
 
+    // Manually-logged activity (calls, texts, meetings, etc.)
+    for (const log of data.activityLogs) {
+      const matches =
+        (log.entityType === entityType && log.entityId === entityId) ||
+        // For company-level views, also include logs against contacts/deals of this company
+        (entityType === 'company' && log.entityType === 'contact' && contactIds.has(log.entityId)) ||
+        (entityType === 'company' && log.entityType === 'deal' && dealIds.has(log.entityId))
+      if (!matches) continue
+      out.push({
+        id: 'log-' + log.id,
+        type: logKindToEventType(log.kind),
+        ts: log.occurredAt || log.createdAt,
+        title: logTitle(log),
+        description: log.body || undefined,
+      })
+    }
+
     return out
       .filter((ev) => ev.ts)
       .sort((a, b) => b.ts.localeCompare(a.ts))
@@ -194,6 +215,14 @@ function ActivityIcon({ type }: { type: ActivityEvent['type'] }) {
     'task-completed': { icon: <CheckSquare size={11} />,       bg: 'bg-[color:rgba(48,179,107,0.12)]', fg: 'text-[var(--color-success)]' },
     'booking':        { icon: <Calendar size={11} />,          bg: 'bg-[color:rgba(59,130,246,0.12)]', fg: 'text-[var(--color-info)]' },
     'enrollment':     { icon: <Zap size={11} />,               bg: 'bg-[color:rgba(122,94,255,0.12)]', fg: 'text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)]' },
+    'log-call-out':   { icon: <Phone size={11} />,             bg: 'bg-[color:rgba(122,94,255,0.12)]', fg: 'text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)]' },
+    'log-call-in':    { icon: <Phone size={11} />,             bg: 'bg-[color:rgba(48,179,107,0.12)]', fg: 'text-[var(--color-success)]' },
+    'log-voicemail':  { icon: <Voicemail size={11} />,         bg: 'bg-[color:rgba(245,165,36,0.14)]', fg: 'text-[var(--color-warning)]' },
+    'log-text-out':   { icon: <MessageSquare size={11} />,     bg: 'bg-[color:rgba(122,94,255,0.12)]', fg: 'text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)]' },
+    'log-text-in':    { icon: <MessageSquare size={11} />,     bg: 'bg-[color:rgba(48,179,107,0.12)]', fg: 'text-[var(--color-success)]' },
+    'log-meeting':    { icon: <UsersIcon size={11} />,         bg: 'bg-[color:rgba(59,130,246,0.12)]', fg: 'text-[var(--color-info)]' },
+    'log-linkedin':   { icon: <Link2 size={11} />,             bg: 'bg-[color:rgba(10,102,194,0.14)]', fg: 'text-[#0a66c2]' },
+    'log-other':      { icon: <FileText size={11} />,          bg: 'bg-[var(--surface-3)]',           fg: 'text-muted' },
   }
   const m = map[type]
   return (
@@ -209,4 +238,46 @@ function ActivityIcon({ type }: { type: ActivityEvent['type'] }) {
 }
 
 void AlertCircle  // reserved for future
-void FileText
+
+import type { ActivityLog as TActivityLog } from '../lib/types'
+
+function logKindToEventType(kind: TActivityLog['kind']): ActivityEvent['type'] {
+  switch (kind) {
+    case 'call-outbound':    return 'log-call-out'
+    case 'call-inbound':     return 'log-call-in'
+    case 'voicemail':        return 'log-voicemail'
+    case 'text-outbound':    return 'log-text-out'
+    case 'text-inbound':     return 'log-text-in'
+    case 'meeting':          return 'log-meeting'
+    case 'linkedin-message': return 'log-linkedin'
+    case 'other':
+    default:                 return 'log-other'
+  }
+}
+
+function logTitle(log: TActivityLog): string {
+  const labels: Record<TActivityLog['kind'], string> = {
+    'call-outbound':    'Outbound call',
+    'call-inbound':     'Inbound call',
+    'voicemail':        'Voicemail',
+    'text-outbound':    'Sent text',
+    'text-inbound':     'Received text',
+    'meeting':          'Meeting',
+    'linkedin-message': 'LinkedIn message',
+    'other':            'Logged activity',
+  }
+  let s = labels[log.kind] || 'Activity'
+  if (log.outcome) {
+    const oLabel: Record<string, string> = {
+      'connected': 'connected',
+      'no-answer': 'no answer',
+      'left-voicemail': 'left voicemail',
+      'replied': 'replied',
+      'no-reply': 'no reply',
+      'completed': 'completed',
+    }
+    if (oLabel[log.outcome]) s += ` — ${oLabel[log.outcome]}`
+  }
+  if (log.durationMinutes) s += ` (${log.durationMinutes} min)`
+  return s
+}

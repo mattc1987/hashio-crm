@@ -1,14 +1,19 @@
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, Mail, Phone, MapPin, Building2, Link2 } from 'lucide-react'
+import { useState } from 'react'
+import { ArrowLeft, ExternalLink, Mail, Phone, MapPin, Building2, Link2, Pencil } from 'lucide-react'
 import { ActivityFeed } from '../components/ActivityFeed'
 import { NotesSection } from '../components/NotesSection'
+import { LogActivityDrawer } from '../components/editors/LogActivityDrawer'
+import { CompanyEditor } from '../components/editors/CompanyEditor'
 import { useSheetData } from '../lib/sheet-context'
-import { Card, CardHeader, Badge, Avatar, PageHeader, Empty } from '../components/ui'
+import { Card, CardHeader, Badge, Avatar, PageHeader, Empty, Button } from '../components/ui'
 import { currency, date, monthlyMRR, activeMRRByCompany } from '../lib/format'
 
 export function CompanyDetail() {
   const { id } = useParams()
-  const { state } = useSheetData()
+  const { state, refresh } = useSheetData()
+  const [editing, setEditing] = useState(false)
+  const [logging, setLogging] = useState(false)
   const data = 'data' in state ? state.data : undefined
   if (!data) return <PageHeader title="Company" />
 
@@ -46,7 +51,7 @@ export function CompanyDetail() {
         <ArrowLeft size={12} /> All companies
       </Link>
 
-      <div className="flex items-start gap-4">
+      <div className="flex items-start gap-4 flex-wrap">
         <Avatar name={company.name} size={56} className="text-[18px]" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -81,6 +86,10 @@ export function CompanyDetail() {
             )}
           </div>
         </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button icon={<Phone size={13} />} onClick={() => setLogging(true)}>Log activity</Button>
+          <Button variant="primary" icon={<Pencil size={13} />} onClick={() => setEditing(true)}>Edit</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -109,7 +118,11 @@ export function CompanyDetail() {
               {companyContacts.map((c) => {
                 const tags = (c.tags || '').split(/[,|]+/).map((t) => t.trim()).filter(Boolean)
                 return (
-                  <div key={c.id} className="flex items-center gap-3 px-5 py-3">
+                  <Link
+                    key={c.id}
+                    to={`/contacts/${c.id}`}
+                    className="flex items-center gap-3 px-5 py-3 hover:surface-2 transition-colors"
+                  >
                     <Avatar firstName={c.firstName} lastName={c.lastName} size={34} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -142,6 +155,7 @@ export function CompanyDetail() {
                           href={c.linkedinUrl}
                           target="_blank"
                           rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
                           className="inline-flex items-center gap-1 hover:text-[#0a66c2]"
                           title="LinkedIn"
                         >
@@ -149,17 +163,17 @@ export function CompanyDetail() {
                         </a>
                       )}
                       {c.email && (
-                        <a href={`mailto:${c.email}`} className="inline-flex items-center gap-1 hover:text-body">
+                        <a href={`mailto:${c.email}`} onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 hover:text-body">
                           <Mail size={11} /> {c.email}
                         </a>
                       )}
                       {c.phone && (
-                        <a href={`tel:${c.phone}`} className="inline-flex items-center gap-1 hover:text-body">
+                        <a href={`tel:${c.phone}`} onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 hover:text-body">
                           <Phone size={11} /> {c.phone}
                         </a>
                       )}
                     </div>
-                  </div>
+                  </Link>
                 )
               })}
             </div>
@@ -225,6 +239,21 @@ export function CompanyDetail() {
         <NotesSection entityType="company" entityId={company.id} />
         <ActivityFeed entityType="company" entityId={company.id} />
       </div>
+
+      <CompanyEditor
+        open={editing}
+        initial={company}
+        onClose={() => setEditing(false)}
+        onSaved={() => refresh()}
+      />
+      <LogActivityDrawer
+        open={logging}
+        entityType="company"
+        entityId={company.id}
+        entityLabel={company.name}
+        onClose={() => setLogging(false)}
+        onSaved={() => refresh()}
+      />
     </div>
   )
 }

@@ -56,6 +56,7 @@ const TABS = {
   bookingLinks:   'BookingLinks',
   bookings:       'Bookings',
   notes:          'Notes',
+  activityLogs:   'ActivityLogs',
 };
 
 /** Canonical header set per entity. Used by ensureHeaders / ensureTabs to
@@ -78,6 +79,7 @@ const KNOWN_HEADERS_ = {
   bookingLinks:  ['id','slug','name','description','durationMinutes','workingDays','startHour','endHour','timezone','bufferMinutes','minAdvanceHours','maxAdvanceDays','ownerEmail','ownerName','status','createdAt','updatedAt'],
   bookings:      ['id','bookingLinkId','slug','attendeeName','attendeeEmail','attendeeNotes','slotStart','slotEnd','eventId','status','createdAt'],
   notes:         ['id','entityType','entityId','body','author','createdAt','updatedAt'],
+  activityLogs:  ['id','entityType','entityId','kind','outcome','body','durationMinutes','occurredAt','createdAt','author'],
 };
 
 /** Add any missing fields as new header columns on the given entity's tab.
