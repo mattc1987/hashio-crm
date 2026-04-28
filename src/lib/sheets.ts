@@ -21,6 +21,7 @@ import type {
   Invoice,
   Lead,
   Note,
+  Proposal,
   Sequence,
   SequenceStep,
   SheetData,
@@ -308,6 +309,31 @@ function mapActivityLogs(rows: Record<string, string>[]): ActivityLog[] {
   }))
 }
 
+function mapProposals(rows: Record<string, string>[]): Proposal[] {
+  return rows.map((r) => ({
+    id: r.id,
+    ruleId: r.ruleId || '',
+    category: (r.category as Proposal['category']) || 'outreach',
+    priority: (r.priority as Proposal['priority']) || 'medium',
+    confidence: toNum(r.confidence),
+    risk: (r.risk as Proposal['risk']) || 'safe',
+    title: r.title || '',
+    reason: r.reason || '',
+    expectedOutcome: r.expectedOutcome || '',
+    actionKind: (r.actionKind as Proposal['actionKind']) || 'create-task',
+    actionPayload: r.actionPayload || '{}',
+    status: (r.status as Proposal['status']) || 'proposed',
+    createdAt: r.createdAt || '',
+    resolvedAt: r.resolvedAt || '',
+    resolvedBy: r.resolvedBy || '',
+    executedAt: r.executedAt || '',
+    executionResult: r.executionResult || '',
+    contactIds: r.contactIds || '',
+    dealId: r.dealId || '',
+    companyId: r.companyId || '',
+  }))
+}
+
 function mapSmsSends(rows: Record<string, string>[]): SmsSend[] {
   return rows.map((r) => ({
     id: r.id,
@@ -378,6 +404,7 @@ export async function loadAll(): Promise<SheetData> {
     activityLogRows,
     leadRows,
     smsSendRows,
+    proposalRows,
   ] = await Promise.all([
     fetchTab('Companies'),
     fetchTab('Contacts'),
@@ -398,6 +425,7 @@ export async function loadAll(): Promise<SheetData> {
     fetchTab('ActivityLogs').catch(() => []),
     fetchTab('Leads').catch(() => []),
     fetchTab('SmsSends').catch(() => []),
+    fetchTab('Proposals').catch(() => []),
   ])
 
   return {
@@ -420,6 +448,7 @@ export async function loadAll(): Promise<SheetData> {
     activityLogs: mapActivityLogs(activityLogRows),
     leads: mapLeads(leadRows),
     smsSends: mapSmsSends(smsSendRows),
+    proposals: mapProposals(proposalRows),
     fetchedAt: new Date().toISOString(),
   }
 }

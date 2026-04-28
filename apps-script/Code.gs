@@ -59,6 +59,7 @@ const TABS = {
   activityLogs:   'ActivityLogs',
   leads:          'Leads',
   smsSends:       'SmsSends',
+  proposals:      'Proposals',
 };
 
 /** Canonical header set per entity. Used by ensureHeaders / ensureTabs to
@@ -84,6 +85,7 @@ const KNOWN_HEADERS_ = {
   activityLogs:  ['id','entityType','entityId','kind','outcome','body','durationMinutes','occurredAt','createdAt','author'],
   leads:         ['id','source','externalId','firstName','lastName','email','linkedinUrl','headline','title','companyName','companyLinkedinUrl','companyDomain','companyIndustry','companySize','location','engagementSignals','temperature','score','status','notes','convertedContactId','createdAt','lastSignalAt'],
   smsSends:      ['id','enrollmentId','sequenceId','stepId','contactId','to','from','body','twilioSid','status','errorMessage','sentAt','deliveredAt','repliedAt'],
+  proposals:     ['id','ruleId','category','priority','confidence','risk','title','reason','expectedOutcome','actionKind','actionPayload','status','createdAt','resolvedAt','resolvedBy','executedAt','executionResult','contactIds','dealId','companyId'],
 };
 
 /** Add any missing fields as new header columns on the given entity's tab.

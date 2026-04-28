@@ -409,6 +409,86 @@ export interface ActivityLog {
 }
 
 /* ============================================================
+   Agentic BDR — Proposals
+   ============================================================
+   Each proposal is one concrete action the rule engine wants to take,
+   gated behind Matt's approval. Audit-logged in the Proposals Sheet
+   tab so we have a full history of what was proposed, what was
+   approved/skipped, and what executed.
+   ============================================================ */
+
+export type ProposalCategory =
+  | 'outreach'      // start new conversations
+  | 'follow-up'     // continue existing conversations
+  | 'deal'          // pipeline updates / nudges
+  | 'hygiene'       // data quality
+  | 'meeting'       // pre/post meeting actions
+  | 'report'        // summaries / alerts (informational only)
+
+export type ProposalRisk = 'safe' | 'moderate' | 'sensitive'
+//  safe       = data-only, internal records (tasks, deal stage, notes)
+//  moderate   = creates internal records that may surface to others (activity log)
+//  sensitive  = sends external messages (email, SMS) — ALWAYS needs explicit approval
+
+export type ProposalStatus =
+  | 'proposed'
+  | 'approved'
+  | 'skipped'
+  | 'edited'
+  | 'executed'
+  | 'failed'
+  | 'cancelled'
+
+export type ProposalActionKind =
+  | 'enroll-in-sequence'
+  | 'send-email'
+  | 'send-sms'
+  | 'create-task'
+  | 'update-deal'
+  | 'update-contact'
+  | 'log-activity'
+  | 'pause-enrollment'
+  | 'merge-records'
+  | 'create-note'
+
+export interface Proposal {
+  id: string
+  ruleId: string
+  category: ProposalCategory
+  priority: 'critical' | 'high' | 'medium' | 'low'
+  /** 0–100 — how confident the rule is. Surfaced in the UI. */
+  confidence: number
+  risk: ProposalRisk
+
+  /** One-line headline shown in the queue card. */
+  title: string
+  /** Why this proposal exists — the rule's reasoning. */
+  reason: string
+  /** What we expect to happen after execution. */
+  expectedOutcome: string
+
+  /** The action shape — exactly one of these is populated.  */
+  actionKind: ProposalActionKind
+  /** JSON-encoded action payload. Shape depends on actionKind. */
+  actionPayload: string
+
+  status: ProposalStatus
+  createdAt: string
+  /** When status moved away from 'proposed'. */
+  resolvedAt: string
+  resolvedBy: string
+  /** When the action actually ran (after approval). */
+  executedAt: string
+  /** Any output / error string from execution. */
+  executionResult: string
+
+  /** Subject ids — denormalized for quick filtering by entity. */
+  contactIds: string  // comma-separated
+  dealId: string
+  companyId: string
+}
+
+/* ============================================================
    SMS sends (mirrors EmailSends but for Twilio-sent texts)
    ============================================================ */
 
@@ -449,5 +529,6 @@ export interface SheetData {
   activityLogs: ActivityLog[]
   leads: Lead[]
   smsSends: SmsSend[]
+  proposals: Proposal[]
   fetchedAt: string
 }
