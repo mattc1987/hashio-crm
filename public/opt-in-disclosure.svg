@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="1200" height="900">
+  <style>
+    .h1 { font: 600 36px -apple-system, system-ui, sans-serif; fill: #111; }
+    .h2 { font: 600 22px -apple-system, system-ui, sans-serif; fill: #444; }
+    .body { font: 400 18px -apple-system, system-ui, sans-serif; fill: #222; }
+    .small { font: 400 14px -apple-system, system-ui, sans-serif; fill: #666; }
+    .accent { fill: #6b4ef5; }
+    .box { fill: #f4f4f7; stroke: #d8d6e0; stroke-width: 1; rx: 12; }
+    .lh { font: 400 18px -apple-system, system-ui, sans-serif; fill: #222; }
+  </style>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <text x="60"  y="80"  class="h1">Hashio Inc. — SMS Consent &amp; Opt-In Disclosure</text>
+  <text x="60"  y="115" class="small">https://gohashio.com  ·  matt@gohashio.com  ·  +1 (833) 699-6629</text>
+
+  <text x="60"  y="180" class="h2">How prospects opt in to receive SMS from Hashio</text>
+
+  <rect x="60" y="200" width="1080" height="170" class="box"/>
+  <text x="80"  y="232" class="body">1. Web form — gohashio.com "Contact Sales":</text>
+  <text x="100" y="262" class="lh">"By submitting, you agree to receive emails and SMS from Hashio Inc. Message and</text>
+  <text x="100" y="288" class="lh">data rates may apply. Message frequency varies. Reply STOP to opt out, HELP for help."</text>
+  <text x="80"  y="328" class="body">2. Verbal consent at demos, trade shows, and 1:1 sales conversations.</text>
+  <text x="80"  y="358" class="body">3. Partner-forwarded opt-ins (e.g. CannaSpyglass) where the prospect explicitly</text>
+
+  <text x="60"  y="420" class="h2">What we send</text>
+  <rect x="60" y="440" width="1080" height="120" class="box"/>
+  <text x="80"  y="472" class="body">• Demo &amp; meeting confirmations and reminders</text>
+  <text x="80"  y="502" class="body">• Sales follow-ups after a call or meeting</text>
+  <text x="80"  y="532" class="body">• Time-sensitive updates on active deals (e.g. proposal sent, contract ready)</text>
+
+  <text x="60"  y="610" class="h2">Opt-out / HELP</text>
+  <rect x="60" y="630" width="1080" height="170" class="box"/>
+  <text x="80"  y="662" class="body">Every message includes "Reply STOP to opt out."</text>
+  <text x="80"  y="692" class="body">STOP / UNSUBSCRIBE / END / QUIT / CANCEL → unsubscribed immediately, confirmation sent once.</text>
+  <text x="80"  y="722" class="body">HELP → response with contact details (matt@gohashio.com, +1 833 699 6629).</text>
+  <text x="80"  y="772" class="small">We do not sell, rent, or share customer phone numbers. Carrier fees may apply per recipient's plan.</text>
+
+  <text x="60" y="860" class="small">Hashio Inc. — 8 The Green, STE A, Dover, DE 19901</text>
+  <text x="900" y="860" class="small accent">gohashio.com</text>
+</svg>
