@@ -32,6 +32,7 @@ export type Entity =
   | 'bookings'
   | 'notes'
   | 'activityLogs'
+  | 'leads'
 
 type Row = Record<string, unknown> & { id: string }
 
@@ -70,7 +71,7 @@ export function localId(entity: Entity): string {
     invoices: 'in', cashflow: 'cf', execUpdates: 'ex',
     sequences: 'sq', sequenceSteps: 'ss', emailTemplates: 'tp',
     enrollments: 'en', emailSends: 'em',
-    bookingLinks: 'bk', bookings: 'bg', notes: 'nt', activityLogs: 'al',
+    bookingLinks: 'bk', bookings: 'bg', notes: 'nt', activityLogs: 'al', leads: 'ld',
   }[entity]
   const rand = Math.random().toString(36).slice(2, 10)
   return `local-${prefix}-${Date.now().toString(36)}-${rand}`

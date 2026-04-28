@@ -298,6 +298,66 @@ export interface Note {
 }
 
 /* ============================================================
+   Leads — prospects ingested from LinkedIn / Teamfluence / Apollo
+   etc. via webhook. Convertible to Contact + Deal once qualified.
+   ============================================================ */
+
+export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'converted' | 'archived'
+export type LeadTemperature = 'cold' | 'warm' | 'hot' | 'molten'
+
+export interface LeadEngagementSignal {
+  /** Free-form signal type: 'company-follow', 'post-like', 'post-comment', 'profile-view', etc. */
+  kind: string
+  ts: string
+  /** What they engaged with — post URL, page name, etc. */
+  target?: string
+  /** Optional weight multiplier (1 = baseline). */
+  weight?: number
+}
+
+export interface Lead {
+  id: string
+  /** Where this lead came from: 'teamfluence', 'apollo', 'clay', 'csv-import', 'manual', etc. */
+  source: string
+  /** External ID from the source system (so we can dedupe). */
+  externalId: string
+
+  // Person-level fields
+  firstName: string
+  lastName: string
+  email: string
+  linkedinUrl: string
+  headline: string  // their LinkedIn headline / current title
+  title: string
+
+  // Company-level fields (denormalized for fast filtering)
+  companyName: string
+  companyLinkedinUrl: string
+  companyDomain: string
+  companyIndustry: string
+  companySize: string
+  location: string
+
+  /** JSON-encoded array of engagement signals over time. */
+  engagementSignals: string
+
+  /** Auto-computed temperature based on signals + recency. */
+  temperature: LeadTemperature
+  /** Auto-computed score (0-100). */
+  score: number
+
+  status: LeadStatus
+  notes: string
+
+  /** If converted, the contact id we created. */
+  convertedContactId: string
+
+  createdAt: string
+  /** Most recent engagement signal timestamp. */
+  lastSignalAt: string
+}
+
+/* ============================================================
    Activity logs (manual call/text/meeting entries)
    Separate from auto-tracked email sends — these are things
    Matt or the team logs by hand: "called Jane, left voicemail"
@@ -359,5 +419,6 @@ export interface SheetData {
   bookings: Booking[]
   notes: Note[]
   activityLogs: ActivityLog[]
+  leads: Lead[]
   fetchedAt: string
 }

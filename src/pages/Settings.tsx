@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Sun, Moon, Monitor, AlertCircle, CheckCircle2, ExternalLink } from 'lucide-react'
+import { Sun, Moon, Monitor, AlertCircle, CheckCircle2, ExternalLink, Flame, Copy } from 'lucide-react'
 import { Card, CardHeader, PageHeader, Badge } from '../components/ui'
 import { getThemePref, setThemePref, type ThemePref } from '../lib/theme'
 import { hasWriteBackend } from '../lib/api'
@@ -110,9 +110,88 @@ export function Settings() {
       </Card>
 
       <Card>
+        <CardHeader
+          title={<span className="flex items-center gap-2"><Flame size={14} className="text-[var(--color-warning)]" /> Lead ingest webhook</span>}
+          subtitle="Point Teamfluence (or Zapier / n8n / Apollo / any tool) at this URL to start populating Leads automatically."
+        />
+        <LeadIngestWebhookConfig />
+      </Card>
+
+      <Card>
         <CardHeader title="About" />
         <div className="text-[12px] text-muted font-mono">Hashio CRM · v0.1 · Apple-style build</div>
       </Card>
+    </div>
+  )
+}
+
+function LeadIngestWebhookConfig() {
+  const url = import.meta.env.VITE_APPS_SCRIPT_URL || ''
+  const fullUrl = url ? `${url}?action=ingestLead` : '(deploy backend first)'
+  const samplePayload = JSON.stringify({
+    source: 'teamfluence',
+    externalId: 'jane-doe-acme',
+    firstName: 'Jane',
+    lastName: 'Doe',
+    email: 'jane@acme.com',
+    linkedinUrl: 'https://linkedin.com/in/janedoe',
+    headline: 'VP of Cultivation at Acme',
+    companyName: 'Acme Cultivation, LLC',
+    companyLinkedinUrl: 'https://linkedin.com/company/acme-cultivation',
+    location: 'Denver, CO',
+    signals: [
+      { kind: 'company-follow', ts: new Date().toISOString() },
+      { kind: 'post-like', ts: new Date().toISOString(), target: 'https://linkedin.com/posts/...' },
+    ],
+  }, null, 2)
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-faint)] mb-1">
+          Webhook URL (POST or GET)
+        </div>
+        <div className="flex items-center gap-2">
+          <code className="flex-1 surface-2 border-soft rounded-[var(--radius-md)] px-3 py-2 text-[11px] font-mono truncate">
+            {fullUrl}
+          </code>
+          <button
+            onClick={() => navigator.clipboard?.writeText(fullUrl)}
+            className="surface border-soft rounded-[var(--radius-md)] h-9 px-3 text-[12px] font-medium text-body hover:surface-2 inline-flex items-center gap-1.5"
+          >
+            <Copy size={12} /> Copy
+          </button>
+        </div>
+        <p className="text-[11px] text-muted mt-2">
+          No API key required for this endpoint — it accepts public webhooks. Sources should
+          send <code className="font-mono surface-2 px-1 rounded">source</code> + a unique{' '}
+          <code className="font-mono surface-2 px-1 rounded">externalId</code> per lead.
+          Repeated webhooks for the same lead will append engagement signals (not duplicate the row).
+        </p>
+      </div>
+
+      <details>
+        <summary className="text-[12px] text-muted cursor-pointer hover:text-body">
+          Show example payload
+        </summary>
+        <pre className="mt-2 surface-2 p-3 rounded-[var(--radius-md)] text-[10px] font-mono text-muted overflow-x-auto whitespace-pre">
+{samplePayload}
+        </pre>
+      </details>
+
+      <details>
+        <summary className="text-[12px] text-muted cursor-pointer hover:text-body">
+          Wire it into Teamfluence (via Zapier — easiest path)
+        </summary>
+        <ol className="mt-2 text-[12px] text-body space-y-2 list-decimal pl-5">
+          <li>In <strong>Zapier</strong>, create a new Zap.</li>
+          <li><strong>Trigger:</strong> Teamfluence → "New engagement" (or similar).</li>
+          <li><strong>Action:</strong> Webhooks by Zapier → POST.</li>
+          <li><strong>URL:</strong> paste the URL above.</li>
+          <li>Map fields: <code className="font-mono">source</code> = "teamfluence", <code className="font-mono">externalId</code> = LinkedIn URN, <code className="font-mono">firstName</code>, <code className="font-mono">lastName</code>, <code className="font-mono">email</code>, <code className="font-mono">linkedinUrl</code>, <code className="font-mono">companyName</code>. For each engagement event, include a <code className="font-mono">signals</code> array with the engagement type (e.g. <code className="font-mono">post-like</code>, <code className="font-mono">company-follow</code>).</li>
+          <li>Test the Zap. Check the Leads tab — your lead should appear.</li>
+        </ol>
+      </details>
     </div>
   )
 }

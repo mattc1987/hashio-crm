@@ -57,6 +57,7 @@ const TABS = {
   bookings:       'Bookings',
   notes:          'Notes',
   activityLogs:   'ActivityLogs',
+  leads:          'Leads',
 };
 
 /** Canonical header set per entity. Used by ensureHeaders / ensureTabs to
@@ -80,6 +81,7 @@ const KNOWN_HEADERS_ = {
   bookings:      ['id','bookingLinkId','slug','attendeeName','attendeeEmail','attendeeNotes','slotStart','slotEnd','eventId','status','createdAt'],
   notes:         ['id','entityType','entityId','body','author','createdAt','updatedAt'],
   activityLogs:  ['id','entityType','entityId','kind','outcome','body','durationMinutes','occurredAt','createdAt','author'],
+  leads:         ['id','source','externalId','firstName','lastName','email','linkedinUrl','headline','title','companyName','companyLinkedinUrl','companyDomain','companyIndustry','companySize','location','engagementSignals','temperature','score','status','notes','convertedContactId','createdAt','lastSignalAt'],
 };
 
 /** Add any missing fields as new header columns on the given entity's tab.
@@ -138,8 +140,12 @@ function handle_(e) {
   const params = (e && e.parameter) || {};
   const out = { ok: false };
 
-  // Public actions — no API key required (booking pages are inherently public).
-  const publicActions = { getAvailability: 1, createBooking: 1, trackOpen: 1, trackClick: 1 };
+  // Public actions — no API key required (booking pages are inherently public,
+  // and lead-ingest is a webhook from third parties that don't have our key).
+  const publicActions = {
+    getAvailability: 1, createBooking: 1, trackOpen: 1, trackClick: 1,
+    ingestLead: 1,
+  };
   if (!publicActions[params.action]) {
     if (!getApiKey_() || params.key !== getApiKey_()) {
       out.error = 'Unauthorized';
@@ -210,6 +216,17 @@ function handle_(e) {
         const payload = safeJson_(params.payload) || {};
         out.ok = true;
         out.data = getAvailability_(payload.slug, payload.fromDate, payload.toDate);
+        break;
+      }
+
+      case 'ingestLead': {
+        // Public lead-ingest webhook. Accepts lead data from any source
+        // (Teamfluence, Apollo, Clay, Zapier, n8n, custom scripts).
+        // De-dupes on (source, externalId) — repeated webhooks just append
+        // engagement signals instead of creating duplicate rows.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = ingestLead_(payload);
         break;
       }
 
@@ -1153,6 +1170,129 @@ function getAvailability_(slug, fromDate, toDate) {
     ownerName: link.ownerName,
     slots: slots,
   };
+}
+
+/* ========================================================================
+   Lead ingest webhook
+   ========================================================================
+   Accepts a lead payload from any third-party source. De-dupes on
+   (source, externalId). Adds engagement signals to the existing row when
+   a repeat ping comes in. Auto-recomputes temperature + score. */
+
+function ingestLead_(payload) {
+  if (!payload || !payload.source) throw new Error('Missing required field: source');
+
+  const source = String(payload.source).toLowerCase();
+  const externalId = String(payload.externalId || payload.id || payload.email || '');
+  if (!externalId) throw new Error('Need externalId, id, or email to dedupe');
+
+  ensureHeaders_('leads', Object.keys(payload));
+  const sheet = getSpreadsheet_().getSheetByName('Leads');
+  if (!sheet) throw new Error('Leads tab missing');
+
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0].map(String);
+  const idCol = headers.indexOf('id');
+  const sourceCol = headers.indexOf('source');
+  const extCol = headers.indexOf('externalId');
+  const sigCol = headers.indexOf('engagementSignals');
+
+  // Look for existing row by (source, externalId)
+  let existingRow = -1;
+  let existingObj = null;
+  for (let r = 1; r < data.length; r++) {
+    if (
+      String(data[r][sourceCol]).toLowerCase() === source &&
+      String(data[r][extCol]) === externalId
+    ) {
+      existingRow = r;
+      existingObj = rowToObj_(headers, data[r]);
+      break;
+    }
+  }
+
+  // Merge incoming signals with existing
+  const incomingSignals = Array.isArray(payload.signals) ? payload.signals
+    : payload.signal ? [payload.signal]
+    : [];
+  let mergedSignals = [];
+  if (existingObj && existingObj.engagementSignals) {
+    try {
+      const parsed = JSON.parse(existingObj.engagementSignals);
+      if (Array.isArray(parsed)) mergedSignals = parsed;
+    } catch (e) {}
+  }
+  for (const sig of incomingSignals) {
+    if (sig && sig.kind) mergedSignals.push({
+      kind: String(sig.kind),
+      ts: sig.ts || new Date().toISOString(),
+      target: sig.target ? String(sig.target) : '',
+      weight: typeof sig.weight === 'number' ? sig.weight : 1,
+    });
+  }
+
+  // Compute score + temperature
+  const scoreData = computeLeadScore_(mergedSignals);
+
+  const now = new Date().toISOString();
+  const row = existingObj || {};
+  // Apply incoming fields (only ones provided)
+  const fieldKeys = [
+    'firstName','lastName','email','linkedinUrl','headline','title',
+    'companyName','companyLinkedinUrl','companyDomain','companyIndustry','companySize','location',
+    'notes',
+  ];
+  fieldKeys.forEach(function (k) {
+    if (payload[k] !== undefined && payload[k] !== '') row[k] = payload[k];
+  });
+  row.source = source;
+  row.externalId = externalId;
+  row.engagementSignals = JSON.stringify(mergedSignals);
+  row.temperature = scoreData.temperature;
+  row.score = scoreData.score;
+  row.lastSignalAt = mergedSignals.length
+    ? mergedSignals.map(function (s) { return s.ts; }).sort().pop()
+    : (row.lastSignalAt || now);
+  if (!row.status) row.status = 'new';
+
+  if (existingRow > 0) {
+    // Update existing
+    applyRowUpdate_(sheet, existingRow + 1, headers, row);
+    return { id: row.id, action: 'updated', score: scoreData.score, temperature: scoreData.temperature };
+  } else {
+    // Create new
+    row.id = 'ld' + Utilities.getUuid().replace(/-/g, '').slice(0, 10);
+    row.createdAt = now;
+    const rowValues = headers.map(function (h) { return row[h] === undefined ? '' : row[h]; });
+    sheet.appendRow(rowValues);
+    return { id: row.id, action: 'created', score: scoreData.score, temperature: scoreData.temperature };
+  }
+}
+
+const LEAD_SIGNAL_WEIGHTS_ = {
+  'company-follow': 15, 'company-page-visit': 8, 'post-like': 10, 'post-comment': 25,
+  'post-share': 30, 'profile-view': 5, 'connection-accept': 20, 'inmail-reply': 35,
+  'website-visit': 12, 'pricing-page-visit': 25, 'demo-page-visit': 20,
+  'newsletter-signup': 18, 'webinar-attend': 28, 'content-download': 22,
+  'event-rsvp': 30, 'replied-to-cold-email': 40,
+};
+
+function computeLeadScore_(signals) {
+  const now = new Date();
+  let total = 0;
+  for (const sig of signals) {
+    const base = LEAD_SIGNAL_WEIGHTS_[sig.kind] || 5;
+    const ageDays = (now.getTime() - new Date(sig.ts).getTime()) / 86400000;
+    const recency = ageDays <= 3 ? 1.5 : ageDays <= 14 ? 1.0 : ageDays <= 30 ? 0.6 : ageDays <= 90 ? 0.3 : 0.1;
+    const weight = (sig.weight || 1) * base * recency;
+    total += weight;
+  }
+  const score = Math.min(100, Math.round(total));
+  let temperature = 'cold';
+  if (score >= 80) temperature = 'molten';
+  else if (score >= 50) temperature = 'hot';
+  else if (score >= 25) temperature = 'warm';
+  return { score: score, temperature: temperature };
 }
 
 function createBooking_(payload) {

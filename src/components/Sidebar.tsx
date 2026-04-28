@@ -12,6 +12,7 @@ import {
   FileText,
   Send,
   Calendar,
+  Flame,
 } from 'lucide-react'
 import { cn } from '../lib/cn'
 
@@ -24,6 +25,7 @@ export interface NavEntry {
 
 export const NAV: NavEntry[] = [
   { to: '/',          label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/leads',     label: 'Leads',     icon: Flame },
   { to: '/deals',     label: 'Deals',     icon: Briefcase },
   { to: '/companies', label: 'Companies', icon: Building2 },
   { to: '/contacts',  label: 'Contacts',  icon: Users },

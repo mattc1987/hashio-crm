@@ -138,6 +138,11 @@ export const api = {
     update: (payload: Record<string, unknown>) => save('activityLogs', 'update', payload),
     remove: (id: string) => save('activityLogs', 'delete', { id }),
   },
+  lead: {
+    create: (payload: Record<string, unknown>) => save('leads', 'create', payload),
+    update: (payload: Record<string, unknown>) => save('leads', 'update', payload),
+    remove: (id: string) => save('leads', 'delete', { id }),
+  },
 }
 
 export function invokeAction(action: string, params: Record<string, unknown>): Promise<WriteResult> {

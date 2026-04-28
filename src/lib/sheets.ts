@@ -19,6 +19,7 @@ import type {
   Enrollment,
   ExecUpdate,
   Invoice,
+  Lead,
   Note,
   Sequence,
   SequenceStep,
@@ -306,6 +307,34 @@ function mapActivityLogs(rows: Record<string, string>[]): ActivityLog[] {
   }))
 }
 
+function mapLeads(rows: Record<string, string>[]): Lead[] {
+  return rows.map((r) => ({
+    id: r.id,
+    source: r.source || 'manual',
+    externalId: r.externalId || '',
+    firstName: r.firstName || '',
+    lastName: r.lastName || '',
+    email: r.email || '',
+    linkedinUrl: r.linkedinUrl || '',
+    headline: r.headline || '',
+    title: r.title || '',
+    companyName: r.companyName || '',
+    companyLinkedinUrl: r.companyLinkedinUrl || '',
+    companyDomain: r.companyDomain || '',
+    companyIndustry: r.companyIndustry || '',
+    companySize: r.companySize || '',
+    location: r.location || '',
+    engagementSignals: r.engagementSignals || '[]',
+    temperature: (r.temperature as Lead['temperature']) || 'cold',
+    score: toNum(r.score),
+    status: (r.status as Lead['status']) || 'new',
+    notes: r.notes || '',
+    convertedContactId: r.convertedContactId || '',
+    createdAt: r.createdAt || '',
+    lastSignalAt: r.lastSignalAt || '',
+  }))
+}
+
 // ---------- Entry point ----------
 
 export async function loadAll(): Promise<SheetData> {
@@ -327,6 +356,7 @@ export async function loadAll(): Promise<SheetData> {
     bookingRows,
     noteRows,
     activityLogRows,
+    leadRows,
   ] = await Promise.all([
     fetchTab('Companies'),
     fetchTab('Contacts'),
@@ -345,6 +375,7 @@ export async function loadAll(): Promise<SheetData> {
     fetchTab('Bookings').catch(() => []),
     fetchTab('Notes').catch(() => []),
     fetchTab('ActivityLogs').catch(() => []),
+    fetchTab('Leads').catch(() => []),
   ])
 
   return {
@@ -365,6 +396,7 @@ export async function loadAll(): Promise<SheetData> {
     bookings: mapBookings(bookingRows),
     notes: mapNotes(noteRows),
     activityLogs: mapActivityLogs(activityLogRows),
+    leads: mapLeads(leadRows),
     fetchedAt: new Date().toISOString(),
   }
 }
