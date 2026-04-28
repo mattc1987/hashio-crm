@@ -1,16 +1,21 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Mail, MailOpen, MousePointerClick, Reply, Search,
   ArrowUpDown, ArrowUp, ArrowDown, AlertCircle, Send,
+  Link2, Flame, ThumbsUp, MessageCircle, Eye,
+  UserPlus, Briefcase,
 } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, Input, PageHeader, Empty, Avatar, Badge, Stat } from '../components/ui'
 import { date, relativeDate } from '../lib/format'
-import type { EmailSend } from '../lib/types'
+import type { EmailSend, Lead } from '../lib/types'
+import { parseSignals, temperatureColor, temperatureLabel, scoreLead } from '../lib/leadScoring'
 import { cn } from '../lib/cn'
 
 type SortKey = 'sentAt' | 'opened' | 'clicked' | 'replied' | 'recipient' | 'sequence'
 type SortDir = 'asc' | 'desc'
+type Channel = 'email' | 'linkedin'
 
 interface EnrichedSend extends EmailSend {
   recipientName: string
@@ -21,6 +26,7 @@ interface EnrichedSend extends EmailSend {
 export function Engagement() {
   const { state } = useSheetData()
   const [query, setQuery] = useState('')
+  const [channel, setChannel] = useState<Channel>('email')
   const [filterEngagement, setFilterEngagement] = useState<'all' | 'opened' | 'clicked' | 'replied' | 'unopened'>('all')
   const [sortKey, setSortKey] = useState<SortKey>('sentAt')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
@@ -30,6 +36,7 @@ export function Engagement() {
   const contacts = data?.contacts ?? []
   const sequences = data?.sequences ?? []
   const sequenceSteps = data?.sequenceSteps ?? []
+  const leads = data?.leads ?? []
 
   const enriched: EnrichedSend[] = useMemo(() => {
     return sends.map((s) => {
@@ -115,37 +122,63 @@ export function Engagement() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Engagement"
-        subtitle="Email sends, opens, clicks, replies. Sort + filter to see who's hot."
+        subtitle="Every signal across email + LinkedIn. Sort, filter, see who's hot."
+        action={
+          <div className="surface-2 border-soft rounded-[var(--radius-md)] p-0.5 flex items-center">
+            <button
+              onClick={() => setChannel('email')}
+              className={cn(
+                'h-9 px-4 text-[12px] font-medium rounded-[var(--radius-sm)] inline-flex items-center gap-1.5 transition-colors',
+                channel === 'email' ? 'surface text-body shadow-soft-xs' : 'text-muted hover:text-body',
+              )}
+            >
+              <Mail size={13} /> Email
+            </button>
+            <button
+              onClick={() => setChannel('linkedin')}
+              className={cn(
+                'h-9 px-4 text-[12px] font-medium rounded-[var(--radius-sm)] inline-flex items-center gap-1.5 transition-colors',
+                channel === 'linkedin' ? 'surface text-body shadow-soft-xs' : 'text-muted hover:text-body',
+              )}
+            >
+              <Link2 size={13} /> LinkedIn
+            </button>
+          </div>
+        }
       />
 
-      {/* ---------------- Stat strip ---------------- */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Stat
-          label="Sent"
-          value={stats.total.toLocaleString()}
-          hint="all-time"
-        />
-        <Stat
-          label="Opened"
-          value={stats.opened.toLocaleString()}
-          delta={`${stats.openRate.toFixed(1)}%`}
-          deltaTone={stats.openRate >= 30 ? 'success' : stats.openRate >= 15 ? 'neutral' : 'danger'}
-        />
-        <Stat
-          label="Clicked"
-          value={stats.clicked.toLocaleString()}
-          delta={`${stats.clickRate.toFixed(1)}%`}
-          deltaTone={stats.clickRate >= 5 ? 'success' : 'neutral'}
-        />
-        <Stat
-          label="Replied"
-          value={stats.replied.toLocaleString()}
-          delta={`${stats.replyRate.toFixed(1)}%`}
-          deltaTone={stats.replyRate >= 3 ? 'success' : 'neutral'}
-        />
-      </div>
+      {/* ---------------- Stat strip (channel-specific) ---------------- */}
+      {channel === 'email' ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Stat label="Sent" value={stats.total.toLocaleString()} hint="all-time" />
+          <Stat
+            label="Opened"
+            value={stats.opened.toLocaleString()}
+            delta={`${stats.openRate.toFixed(1)}%`}
+            deltaTone={stats.openRate >= 30 ? 'success' : stats.openRate >= 15 ? 'neutral' : 'danger'}
+          />
+          <Stat
+            label="Clicked"
+            value={stats.clicked.toLocaleString()}
+            delta={`${stats.clickRate.toFixed(1)}%`}
+            deltaTone={stats.clickRate >= 5 ? 'success' : 'neutral'}
+          />
+          <Stat
+            label="Replied"
+            value={stats.replied.toLocaleString()}
+            delta={`${stats.replyRate.toFixed(1)}%`}
+            deltaTone={stats.replyRate >= 3 ? 'success' : 'neutral'}
+          />
+        </div>
+      ) : (
+        <LinkedInStatStrip leads={leads} />
+      )}
 
-      {/* ---------------- Filters + table ---------------- */}
+      {/* ---------------- Channel content ---------------- */}
+      {channel === 'linkedin' ? (
+        <LinkedInEngagementCard leads={leads} query={query} setQuery={setQuery} />
+      ) : (
+      /* ---------------- EMAIL channel: filters + table ---------------- */
       <Card padded={false}>
         <div className="p-3 border-soft-b flex flex-col sm:flex-row gap-2">
           <div className="relative flex-1 min-w-[220px]">
@@ -209,9 +242,200 @@ export function Engagement() {
           </div>
         )}
       </Card>
+      )}
     </div>
   )
 }
+
+/* ==========================================================================
+   LinkedIn channel
+   ========================================================================== */
+
+interface LinkedInRow {
+  leadId: string
+  leadName: string
+  leadCompany: string
+  leadEmail: string
+  signalKind: string
+  signalTarget: string
+  signalTs: string
+  leadScore: number
+  leadTemperature: ReturnType<typeof scoreLead>['temperature']
+}
+
+function flattenLeadSignals(leads: Lead[]): LinkedInRow[] {
+  const out: LinkedInRow[] = []
+  for (const lead of leads) {
+    if (lead.status === 'archived') continue
+    const result = scoreLead(lead)
+    const signals = parseSignals(lead.engagementSignals)
+    for (const s of signals) {
+      // Only show LinkedIn-flavored signals on this tab
+      if (!isLinkedInSignal(s.kind)) continue
+      out.push({
+        leadId: lead.id,
+        leadName: `${lead.firstName} ${lead.lastName}`.trim() || lead.email || lead.id,
+        leadCompany: lead.companyName,
+        leadEmail: lead.email,
+        signalKind: s.kind,
+        signalTarget: s.target || '',
+        signalTs: s.ts,
+        leadScore: result.score,
+        leadTemperature: result.temperature,
+      })
+    }
+  }
+  return out.sort((a, b) => (b.signalTs || '').localeCompare(a.signalTs || ''))
+}
+
+function isLinkedInSignal(kind: string): boolean {
+  return /(company-follow|company-page-visit|post-like|post-comment|post-share|profile-view|connection-accept|inmail-reply)/.test(kind)
+}
+
+function LinkedInStatStrip({ leads }: { leads: Lead[] }) {
+  const rows = useMemo(() => flattenLeadSignals(leads), [leads])
+  const follows  = rows.filter((r) => r.signalKind === 'company-follow').length
+  const likes    = rows.filter((r) => r.signalKind === 'post-like').length
+  const comments = rows.filter((r) => r.signalKind === 'post-comment').length
+  const replies  = rows.filter((r) => r.signalKind === 'inmail-reply' || r.signalKind === 'connection-accept').length
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <Stat label="Total LinkedIn signals" value={rows.length.toLocaleString()} hint="all-time across all leads" />
+      <Stat label="Follows" value={follows.toString()} />
+      <Stat label="Post engagement" value={(likes + comments).toString()} hint={`${likes} likes · ${comments} comments`} />
+      <Stat label="High-intent" value={replies.toString()} hint="InMail replies + connections" />
+    </div>
+  )
+}
+
+function LinkedInEngagementCard({
+  leads, query, setQuery,
+}: {
+  leads: Lead[]
+  query: string
+  setQuery: (q: string) => void
+}) {
+  const [kindFilter, setKindFilter] = useState<string>('all')
+  const allRows = useMemo(() => flattenLeadSignals(leads), [leads])
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim()
+    return allRows.filter((r) => {
+      if (kindFilter !== 'all' && r.signalKind !== kindFilter) return false
+      if (!q) return true
+      return (
+        r.leadName.toLowerCase().includes(q) ||
+        r.leadCompany.toLowerCase().includes(q) ||
+        r.signalTarget.toLowerCase().includes(q)
+      )
+    })
+  }, [allRows, query, kindFilter])
+
+  const kinds = useMemo(() => {
+    const set = new Set<string>()
+    allRows.forEach((r) => set.add(r.signalKind))
+    return Array.from(set).sort()
+  }, [allRows])
+
+  return (
+    <Card padded={false}>
+      <div className="p-3 border-soft-b flex flex-col sm:flex-row gap-2">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]" />
+          <Input
+            placeholder="Search lead, company, post URL…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <div className="flex items-center gap-1.5 overflow-x-auto">
+          <ChipSmall active={kindFilter === 'all'} onClick={() => setKindFilter('all')}>All</ChipSmall>
+          {kinds.map((k) => (
+            <ChipSmall key={k} active={kindFilter === k} onClick={() => setKindFilter(k)}>
+              {linkedInKindIcon(k)}
+              {k.replace(/-/g, ' ')}
+            </ChipSmall>
+          ))}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <Empty
+          icon={<Link2 size={22} />}
+          title={allRows.length === 0 ? 'No LinkedIn signals yet' : 'No matches'}
+          description={
+            allRows.length === 0
+              ? "Once Teamfluence (or any source) starts feeding the lead webhook with engagement signals, you'll see them here. Each follow, like, comment, profile view, etc."
+              : "Try a different filter."
+          }
+        />
+      ) : (
+        <ul className="divide-y divide-[color:var(--border)]">
+          {filtered.map((r, i) => (
+            <li key={`${r.leadId}-${i}-${r.signalTs}`}>
+              <Link
+                to={`/leads`}
+                className="flex items-center gap-3 px-4 py-3 hover:surface-2 transition-colors group"
+              >
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: temperatureColor(r.leadTemperature) }}
+                  title={temperatureLabel(r.leadTemperature)}
+                />
+                <Avatar name={r.leadName} size={28} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[13px] font-medium text-body truncate">{r.leadName}</span>
+                    <span className="text-[11px] text-muted truncate">{r.leadCompany}</span>
+                  </div>
+                  <div className="text-[11px] text-muted mt-0.5 flex items-center gap-1.5 truncate">
+                    {linkedInKindIcon(r.signalKind)}
+                    <span className="font-medium text-body">{r.signalKind.replace(/-/g, ' ')}</span>
+                    {r.signalTarget && <span className="truncate">· {r.signalTarget}</span>}
+                  </div>
+                </div>
+                <Badge tone="brand">score {r.leadScore}</Badge>
+                <span className="text-[10px] text-[var(--text-faint)] tabular shrink-0">
+                  {r.signalTs ? relativeDate(r.signalTs) : ''}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
+function linkedInKindIcon(kind: string) {
+  if (kind === 'post-like')         return <ThumbsUp size={11} className="text-[var(--color-info)]" />
+  if (kind === 'post-comment')      return <MessageCircle size={11} className="text-[var(--color-info)]" />
+  if (kind === 'post-share')        return <Send size={11} className="text-[var(--color-info)]" />
+  if (kind === 'profile-view')      return <Eye size={11} className="text-muted" />
+  if (kind === 'company-follow')    return <UserPlus size={11} className="text-[var(--color-success)]" />
+  if (kind === 'company-page-visit')return <Eye size={11} className="text-muted" />
+  if (kind === 'connection-accept') return <UserPlus size={11} className="text-[var(--color-success)]" />
+  if (kind === 'inmail-reply')      return <Reply size={11} className="text-[var(--color-brand-700)]" />
+  return <Flame size={11} className="text-[var(--color-warning)]" />
+}
+
+function ChipSmall({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'h-8 px-3 text-[11px] font-medium rounded-[var(--radius-sm)] transition-colors whitespace-nowrap inline-flex items-center gap-1.5',
+        active ? 'bg-[var(--color-brand-600)] text-white' : 'surface-2 text-muted hover:text-body',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+void Briefcase
 
 function Th({
   children,
