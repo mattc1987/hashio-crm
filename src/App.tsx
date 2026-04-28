@@ -9,6 +9,7 @@ import { ContactDetail } from './pages/ContactDetail'
 import { DealDetail } from './pages/DealDetail'
 import { Tasks } from './pages/Tasks'
 import { Leads } from './pages/Leads'
+import { Briefing } from './pages/Briefing'
 import { ExecUpdates } from './pages/ExecUpdates'
 import { Import } from './pages/Import'
 import { Settings } from './pages/Settings'
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/contacts/:id" element={<ContactDetail />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/leads" element={<Leads />} />
+        <Route path="/briefing" element={<Briefing />} />
         <Route path="/sequences" element={<Sequences />} />
         <Route path="/sequences/:id" element={<SequenceEditor />} />
         <Route path="/sequences/:id/enrollments" element={<SequenceEnrollments />} />

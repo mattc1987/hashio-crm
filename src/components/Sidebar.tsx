@@ -13,6 +13,7 @@ import {
   Send,
   Calendar,
   Flame,
+  Sparkles,
 } from 'lucide-react'
 import { cn } from '../lib/cn'
 
@@ -25,6 +26,7 @@ export interface NavEntry {
 
 export const NAV: NavEntry[] = [
   { to: '/',          label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/briefing',  label: 'AI BDR',    icon: Sparkles },
   { to: '/leads',     label: 'Leads',     icon: Flame },
   { to: '/deals',     label: 'Deals',     icon: Briefcase },
   { to: '/companies', label: 'Companies', icon: Building2 },
