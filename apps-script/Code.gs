@@ -936,6 +936,9 @@ function draftMessage_(payload) {
     (kind === 'sms'
       ? 'You are drafting an SMS — must be under 320 chars, ideally under 160. Plain text only.\n'
       : 'You are drafting an email — short subject line (under 60 chars), 2-4 short paragraphs body, signed "— Matt".\n') +
+    'CRITICAL — BOOKING LINKS:\n' +
+    'If the context contains a "bookingLinks" array, those are Matt\'s real scheduling URLs. Use one verbatim if you suggest a meeting.\n' +
+    'NEVER invent calendly.com, hubspot.com, savvycal.com, etc — those will 404. If bookingLinks is empty, write "I\'ll send a few times that work" instead.\n\n' +
     'Return ONLY a JSON object. No markdown, no preamble. Schema:\n' +
     (kind === 'sms'
       ? '{"body": "..."}'
@@ -1026,6 +1029,17 @@ function buildDraftPrompt_(ctx, instruction) {
     lines.push('');
   }
 
+  if (Array.isArray(ctx.bookingLinks) && ctx.bookingLinks.length > 0) {
+    lines.push('MATT\'S ACTIVE BOOKING LINKS (use these EXACT URLs if you propose a meeting — never invent calendly.com etc):');
+    ctx.bookingLinks.forEach(function (b) {
+      lines.push('  - ' + (b.name || b.slug) + ' (' + (b.durationMinutes || '?') + ' min): ' + b.url);
+    });
+    lines.push('');
+  } else if (ctx.bookingLinks && Array.isArray(ctx.bookingLinks) && ctx.bookingLinks.length === 0) {
+    lines.push('NO BOOKING LINKS AVAILABLE — if you suggest a meeting, write "I\'ll send a few times that work" instead of any URL.');
+    lines.push('');
+  }
+
   lines.push('GOAL: ' + (ctx.goal || 'Continue the conversation in a way that earns a reply.'));
   if (instruction) lines.push('\nADDITIONAL INSTRUCTION FROM MATT: ' + instruction);
 
@@ -1106,6 +1120,12 @@ function aiSuggestNextMove_(payload) {
     '- After 8+ touches with zero engagement, recommend pausing and trying again in 90 days.\n\n' +
     'Voice: warm, direct, low-key. Short paragraphs. Never "synergy", "leverage", "circle back". Sign emails "— Matt".\n' +
     'SMS under 320 chars. Email subject under 60 chars. Email body 2-4 short paragraphs.\n\n' +
+    'CRITICAL — BOOKING LINKS:\n' +
+    'When you suggest a meeting / demo / call, the context contains a "bookingLinks" array with Matt\'s ACTUAL active scheduling URLs.\n' +
+    '- ALWAYS use one of those URLs verbatim if you reference a booking link.\n' +
+    '- Pick the booking link whose name/duration best matches the goal (e.g. "15-min intro" for cold outreach, "30-min demo" for qualified).\n' +
+    '- NEVER invent calendly.com, hubspot.com, savvycal.com, or any other URL — those domains are not Matt\'s and will 404.\n' +
+    '- If bookingLinks is empty, write "I\'ll send a few times that work" instead of any URL.\n\n' +
     'YOU MUST RETURN STRICT JSON — no markdown, no preamble, no code fences. Schema:\n' +
     '{\n' +
     '  "narrative": "1-2 sentence read on the situation in plain English",\n' +

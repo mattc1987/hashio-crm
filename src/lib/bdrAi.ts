@@ -54,6 +54,9 @@ export async function narrativeReason(
 function buildContext(p: Proposal, data: SheetData) {
   const ctx: Record<string, unknown> = {}
 
+  // Always pass real booking links so Claude doesn't invent Calendly URLs.
+  ctx.bookingLinks = buildBookingLinksContext(data)
+
   // Contact
   const contactId = (p.contactIds || '').split(',').map((s) => s.trim()).filter(Boolean)[0]
   if (contactId) {
@@ -199,6 +202,11 @@ export async function suggestNextMove(
 function buildSuggestionContext(entity: SuggestEntity, data: SheetData): Record<string, unknown> {
   const ctx: Record<string, unknown> = {}
 
+  // ALWAYS include Matt's active booking links + their REAL public URLs so
+  // Claude doesn't invent Calendly URLs that 404. The AI is instructed in
+  // the system prompt to use these verbatim when proposing a meeting.
+  ctx.bookingLinks = buildBookingLinksContext(data)
+
   if (entity.kind === 'task') {
     const t = entity.task
     ctx.task = {
@@ -319,4 +327,24 @@ function recentActivityFor(contactId: string, data: SheetData): string[] {
     .sort((a, b) => (b.ts || '').localeCompare(a.ts || ''))
     .slice(0, 10)
     .map((x) => x.line)
+}
+
+/** Build the active booking-link list with REAL public URLs so Claude can
+ *  drop them verbatim into drafted emails instead of inventing Calendly URLs. */
+function buildBookingLinksContext(data: SheetData): Array<Record<string, unknown>> {
+  // The public URL pattern matches what BookingLinks.tsx generates:
+  //   {origin}{BASE_URL}book/{slug}
+  // For the deployed site that's https://mattc1987.github.io/hashio-crm/book/{slug}.
+  // For local dev that's http://localhost:5174/book/{slug}.
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://mattc1987.github.io'
+  const baseUrl = (import.meta as ImportMeta & { env?: { BASE_URL?: string } }).env?.BASE_URL || '/'
+  return data.bookingLinks
+    .filter((l) => l.status === 'active')
+    .map((l) => ({
+      slug: l.slug,
+      name: l.name,
+      durationMinutes: l.durationMinutes,
+      description: l.description,
+      url: `${origin}${baseUrl}book/${l.slug}`,
+    }))
 }
