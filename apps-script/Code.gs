@@ -937,7 +937,8 @@ function draftMessage_(payload) {
       ? 'You are drafting an SMS — must be under 320 chars, ideally under 160. Plain text only.\n'
       : 'You are drafting an email — short subject line (under 60 chars), 2-4 short paragraphs body, signed "— Matt".\n') +
     'CRITICAL — BOOKING LINKS:\n' +
-    'If the context contains a "bookingLinks" array, those are Matt\'s real scheduling URLs. Use one verbatim if you suggest a meeting.\n' +
+    'If the context contains a "bookingLinks" array, those are Matt\'s real scheduling URLs. Paste the FULL URL VERBATIM.\n' +
+    'NEVER write [booking link], [URL], <link>, {{link}}, or any placeholder — the message ships as-is to the prospect.\n' +
     'NEVER invent calendly.com, hubspot.com, savvycal.com, etc — those will 404. If bookingLinks is empty, write "I\'ll send a few times that work" instead.\n\n' +
     'Return ONLY a JSON object. No markdown, no preamble. Schema:\n' +
     (kind === 'sms'
@@ -1122,10 +1123,12 @@ function aiSuggestNextMove_(payload) {
     'SMS under 320 chars. Email subject under 60 chars. Email body 2-4 short paragraphs.\n\n' +
     'CRITICAL — BOOKING LINKS:\n' +
     'When you suggest a meeting / demo / call, the context contains a "bookingLinks" array with Matt\'s ACTUAL active scheduling URLs.\n' +
-    '- ALWAYS use one of those URLs verbatim if you reference a booking link.\n' +
+    '- ALWAYS paste the FULL URL VERBATIM. Example: "https://mattc1987.github.io/hashio-crm/book/15-min-intro"\n' +
+    '- NEVER write a placeholder like [booking link], [URL], <link here>, {{link}}, etc. The message goes out as-is — placeholders ship to the prospect.\n' +
     '- Pick the booking link whose name/duration best matches the goal (e.g. "15-min intro" for cold outreach, "30-min demo" for qualified).\n' +
     '- NEVER invent calendly.com, hubspot.com, savvycal.com, or any other URL — those domains are not Matt\'s and will 404.\n' +
-    '- If bookingLinks is empty, write "I\'ll send a few times that work" instead of any URL.\n\n' +
+    '- If bookingLinks is empty, write "I\'ll send a few times that work" instead of any URL or placeholder.\n\n' +
+    'EXTRA INSTRUCTION FROM MATT (if present in the user message under "ADDITIONAL INSTRUCTION"): treat that as authoritative — incorporate it.\n\n' +
     'YOU MUST RETURN STRICT JSON — no markdown, no preamble, no code fences. Schema:\n' +
     '{\n' +
     '  "narrative": "1-2 sentence read on the situation in plain English",\n' +
@@ -1139,9 +1142,11 @@ function aiSuggestNextMove_(payload) {
     '  "confidence": 0-100\n' +
     '}\n';
 
+  const extraInstruction = payload.instruction || '';
   const userMessage = 'GOAL: ' + (goal || 'Suggest the single best next move.') + '\n\n' +
     'ENTITY TYPE: ' + entityType + '\n\n' +
     'CONTEXT (JSON):\n' + JSON.stringify(context, null, 2) + '\n\n' +
+    (extraInstruction ? 'ADDITIONAL INSTRUCTION FROM MATT — treat as authoritative:\n' + extraInstruction + '\n\n' : '') +
     'Return your JSON.';
 
   const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {

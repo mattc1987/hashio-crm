@@ -31,14 +31,16 @@ export function AIBdrDrawer({ open, onClose, entity, data, goal, onApplied }: Pr
   const [editedBody, setEditedBody] = useState('')
   const [applying, setApplying] = useState(false)
   const [applyResult, setApplyResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [instruction, setInstruction] = useState('')
 
-  // Fetch on open
+  // Fetch on open. Reset instruction when entity changes.
   useEffect(() => {
     if (!open || !entity) return
     setLoading(true)
     setError(null)
     setSuggestion(null)
     setApplyResult(null)
+    setInstruction('')
     suggestNextMove(entity, data, { goal })
       .then((s) => {
         setSuggestion(s)
@@ -49,22 +51,30 @@ export function AIBdrDrawer({ open, onClose, entity, data, goal, onApplied }: Pr
       .finally(() => setLoading(false))
   }, [open, entity, data, goal])
 
-  const regenerate = async () => {
+  // Generic regenerate — optionally accepts an extra instruction (used by both
+  // the manual "Regenerate" button and the clickable alternatives).
+  const regenerateWith = async (extra?: string) => {
     if (!entity) return
     setLoading(true)
     setError(null)
     setApplyResult(null)
     try {
-      const s = await suggestNextMove(entity, data, { goal })
+      const s = await suggestNextMove(entity, data, {
+        goal,
+        instruction: extra || instruction || '',
+      })
       setSuggestion(s)
       setEditedSubject(s.draftedSubject || '')
       setEditedBody(s.draftedBody || '')
+      // Don't clear `instruction` — Matt may want to refine further.
     } catch (err) {
       setError((err as Error).message)
     } finally {
       setLoading(false)
     }
   }
+
+  const regenerate = () => regenerateWith()
 
   const apply = async () => {
     if (!suggestion || !entity) return
@@ -201,19 +211,44 @@ export function AIBdrDrawer({ open, onClose, entity, data, goal, onApplied }: Pr
             </div>
           )}
 
-          {/* Alternatives */}
+          {/* Alternatives — clickable to switch to that approach */}
           {suggestion.alternativeActions && suggestion.alternativeActions.length > 0 && (
             <div>
               <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] font-semibold mb-1">
-                Alternatives
+                Alternatives — click to regenerate with this approach
               </div>
-              <ul className="text-[12px] text-muted space-y-1 list-disc pl-5">
+              <div className="flex flex-col gap-1.5">
                 {suggestion.alternativeActions.map((a, i) => (
-                  <li key={i}>{a}</li>
+                  <button
+                    key={i}
+                    onClick={() => regenerateWith(`Switch to this approach instead: ${a}`)}
+                    disabled={loading}
+                    className="text-left text-[12px] text-muted hover:text-body hover:surface-2 surface border-soft rounded-[var(--radius-md)] px-3 py-2 transition-colors disabled:opacity-50"
+                  >
+                    <span className="text-[var(--color-brand-600)] font-medium mr-1">→</span>
+                    {a}
+                  </button>
                 ))}
-              </ul>
+              </div>
             </div>
           )}
+
+          {/* Extra instruction input — refine the draft with custom guidance */}
+          <div className="surface-2 rounded-[var(--radius-md)] p-3">
+            <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] font-semibold mb-1.5">
+              Add context for Claude (optional)
+            </div>
+            <Textarea
+              value={instruction}
+              onChange={(e) => setInstruction(e.target.value)}
+              placeholder='e.g. "Be more direct" · "Mention we just shipped automated batch tracking" · "Reference their LinkedIn post about cost-per-pound"'
+              rows={2}
+              className="text-[12px]"
+            />
+            <div className="text-[10px] text-muted mt-1">
+              Hit <strong>Regenerate</strong> below to apply.
+            </div>
+          </div>
 
           {/* Apply result */}
           {applyResult && (

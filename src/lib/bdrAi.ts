@@ -189,13 +189,14 @@ export type SuggestEntity =
 export async function suggestNextMove(
   entity: SuggestEntity,
   data: SheetData,
-  options: { goal?: string } = {},
+  options: { goal?: string; instruction?: string } = {},
 ): Promise<NextMoveSuggestion> {
   const context = buildSuggestionContext(entity, data)
   return call<NextMoveSuggestion>('aiSuggestNextMove', {
     entityType: entity.kind,
     context,
     goal: options.goal || '',
+    instruction: options.instruction || '',
   })
 }
 
