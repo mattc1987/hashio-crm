@@ -262,6 +262,33 @@ function handle_(e) {
         break;
       }
 
+      case 'setAnthropicConfig': {
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = setAnthropicConfig_(payload);
+        break;
+      }
+
+      case 'getAnthropicStatus': {
+        out.ok = true;
+        out.data = getAnthropicStatus_();
+        break;
+      }
+
+      case 'draftMessage': {
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = draftMessage_(payload);
+        break;
+      }
+
+      case 'narrativeReason': {
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = narrativeReason_(payload);
+        break;
+      }
+
       default:
         throw new Error('Unknown action: ' + params.action);
     }
@@ -781,6 +808,237 @@ function sendTestSms_(to, body) {
     to: to,
     body: finalBody,
   });
+}
+
+
+/* ---------- Anthropic (Claude) proxy ---------- */
+/* Server-side proxy so the API key never ships to the browser. The CRM
+ * Settings page calls setAnthropicConfig({apiKey}) once; thereafter the
+ * BDR can call draftMessage / narrativeReason and we forward to Claude
+ * with the stored key.
+ */
+
+const ANTHROPIC_DEFAULT_MODEL_ = 'claude-sonnet-4-5-20250929';
+const ANTHROPIC_API_URL_ = 'https://api.anthropic.com/v1/messages';
+const ANTHROPIC_API_VERSION_ = '2023-06-01';
+
+function setAnthropicConfig_(payload) {
+  const props = PropertiesService.getScriptProperties();
+  if (payload.apiKey) props.setProperty('ANTHROPIC_API_KEY', String(payload.apiKey).trim());
+  if (payload.model)  props.setProperty('ANTHROPIC_MODEL',   String(payload.model).trim());
+  return getAnthropicStatus_();
+}
+
+function getAnthropicStatus_() {
+  const props = PropertiesService.getScriptProperties();
+  const key = props.getProperty('ANTHROPIC_API_KEY') || '';
+  const model = props.getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  const configured = !!key;
+
+  let connectionOk = false;
+  let connectionError = '';
+  let sampleResponse = '';
+
+  if (configured) {
+    try {
+      const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+        method: 'post',
+        contentType: 'application/json',
+        headers: {
+          'x-api-key': key,
+          'anthropic-version': ANTHROPIC_API_VERSION_,
+        },
+        payload: JSON.stringify({
+          model: model,
+          max_tokens: 32,
+          messages: [{ role: 'user', content: 'Reply with the word "ok" only.' }],
+        }),
+        muteHttpExceptions: true,
+      });
+      const code = res.getResponseCode();
+      if (code === 200) {
+        const json = JSON.parse(res.getContentText());
+        connectionOk = true;
+        sampleResponse = (json.content && json.content[0] && json.content[0].text) || '';
+      } else {
+        connectionError = 'HTTP ' + code + ': ' + res.getContentText().slice(0, 200);
+      }
+    } catch (err) {
+      connectionError = String(err && err.message || err);
+    }
+  }
+
+  return {
+    configured: configured,
+    keyMasked: key ? '••••' + key.slice(-6) : '',
+    model: model,
+    connectionOk: connectionOk,
+    connectionError: connectionError,
+    sampleResponse: sampleResponse,
+  };
+}
+
+/**
+ * Calls Claude with a structured prompt for drafting an outbound message.
+ * Inputs: { kind: 'email'|'sms', context: {...}, instruction?: string }
+ * Output: { subject?: string, body: string, model: string }
+ */
+function draftMessage_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured. Open Settings to add your API key.');
+
+  const kind = payload.kind || 'email';
+  const ctx = payload.context || {};
+  const instruction = payload.instruction || '';
+
+  const systemPrompt =
+    'You are Matt Campbell\'s sales assistant at Hashio Inc. — a B2B SaaS that helps licensed agricultural producers ' +
+    '(specifically cannabis cultivators) run their operations. Hashio replaces spreadsheets with a single dashboard ' +
+    'covering compliance, scheduling, yield, and cost-per-pound tracking. Matt is the founder and writes every email himself.\n\n' +
+    'Voice: warm, direct, low-key. Short paragraphs. No marketing fluff. No exclamation points unless something genuinely warrants ' +
+    'one. Never use the word "synergy", "leverage", "circle back", or any bro-sales phrasing. Never start with "I hope you\'re well".\n\n' +
+    (kind === 'sms'
+      ? 'You are drafting an SMS — must be under 320 chars, ideally under 160. Plain text only.\n'
+      : 'You are drafting an email — short subject line (under 60 chars), 2-4 short paragraphs body, signed "— Matt".\n') +
+    'Return ONLY a JSON object. No markdown, no preamble. Schema:\n' +
+    (kind === 'sms'
+      ? '{"body": "..."}'
+      : '{"subject": "...", "body": "..."}');
+
+  const userMessage = buildDraftPrompt_(ctx, instruction);
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': ANTHROPIC_API_VERSION_,
+    },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 600,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+
+  const code = res.getResponseCode();
+  if (code !== 200) {
+    throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  }
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+
+  // Try to extract JSON. Claude usually returns clean JSON with our system prompt,
+  // but be defensive in case it adds a code-fence.
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (e) {
+    // Last resort: return raw text as body
+    parsed = { body: text };
+  }
+  return {
+    subject: parsed.subject || '',
+    body: parsed.body || '',
+    model: model,
+    raw: text,
+  };
+}
+
+function buildDraftPrompt_(ctx, instruction) {
+  const lines = [];
+  lines.push('Draft a message to this prospect.\n');
+
+  if (ctx.contact) {
+    lines.push('CONTACT:');
+    lines.push('  Name: ' + (ctx.contact.firstName || '') + ' ' + (ctx.contact.lastName || ''));
+    if (ctx.contact.title)   lines.push('  Title: ' + ctx.contact.title);
+    if (ctx.contact.companyName) lines.push('  Company: ' + ctx.contact.companyName);
+    if (ctx.contact.email)   lines.push('  Email: ' + ctx.contact.email);
+    if (ctx.contact.linkedinUrl) lines.push('  LinkedIn: ' + ctx.contact.linkedinUrl);
+    lines.push('');
+  }
+
+  if (ctx.deal) {
+    lines.push('DEAL:');
+    lines.push('  Title: ' + (ctx.deal.title || ''));
+    if (ctx.deal.stage) lines.push('  Stage: ' + ctx.deal.stage);
+    if (ctx.deal.value) lines.push('  Value: $' + ctx.deal.value);
+    lines.push('');
+  }
+
+  if (ctx.signal) {
+    lines.push('TRIGGERING SIGNAL: ' + ctx.signal);
+    lines.push('');
+  }
+
+  if (ctx.recentActivity && ctx.recentActivity.length) {
+    lines.push('RECENT TOUCHES (newest first):');
+    ctx.recentActivity.slice(0, 5).forEach(function (a) {
+      lines.push('  - ' + a);
+    });
+    lines.push('');
+  }
+
+  if (ctx.priorEmail) {
+    lines.push('PRIOR EMAIL THREAD (their last reply / your last send):');
+    lines.push('  Subject: ' + (ctx.priorEmail.subject || ''));
+    lines.push('  Body excerpt: ' + (ctx.priorEmail.body || '').slice(0, 400));
+    lines.push('');
+  }
+
+  lines.push('GOAL: ' + (ctx.goal || 'Continue the conversation in a way that earns a reply.'));
+  if (instruction) lines.push('\nADDITIONAL INSTRUCTION FROM MATT: ' + instruction);
+
+  return lines.join('\n');
+}
+
+/**
+ * Generates a 1-2 sentence narrative reason explaining WHY this proposal
+ * matters. Used to upgrade the reason field on a proposal card.
+ * Input: { proposalSummary: string, context: {...} }
+ * Output: { narrative: string }
+ */
+function narrativeReason_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured.');
+
+  const systemPrompt =
+    'You explain why a sales action matters, in 1-2 plain sentences. No marketing fluff, no hedging. ' +
+    'Reference specific data points the user gave you. Reply with raw text — no JSON, no markdown.';
+
+  const userMessage =
+    'Proposal: ' + (payload.proposalSummary || '') + '\n\n' +
+    'Context: ' + JSON.stringify(payload.context || {}, null, 2) + '\n\n' +
+    'Explain why this is worth doing now (1-2 sentences).';
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': ANTHROPIC_API_VERSION_,
+    },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 200,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) {
+    throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 200));
+  }
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+  return { narrative: text.trim() };
 }
 
 

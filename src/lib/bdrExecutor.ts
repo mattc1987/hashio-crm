@@ -187,20 +187,45 @@ export async function executeProposal(
       case 'send-email':
       case 'send-sms': {
         // Phase 1: we don't auto-send raw emails/SMS from here. Instead, we
-        // create a high-priority TASK that points to the right place. Once the
-        // LLM upgrade lands, the executor will hand off to a draft-and-send flow.
+        // create a high-priority TASK that includes the AI-drafted message
+        // (if present) for Matt to copy-paste into Gmail / Twilio. Phase 2
+        // will swap this for a real send via Apps Script Gmail / sequence-SMS.
+        const draftedSubject = (payload.draftedSubject as string) || ''
+        const draftedBody = (payload.draftedBody as string) || ''
+        const draftedBy = (payload.draftedBy as string) || ''
+
+        const taskNotesParts: string[] = []
+        if (draftedBody) {
+          taskNotesParts.push('--- DRAFTED MESSAGE (review + edit before sending) ---')
+          if (p.actionKind === 'send-email' && draftedSubject) {
+            taskNotesParts.push(`Subject: ${draftedSubject}`)
+          }
+          taskNotesParts.push(draftedBody)
+          taskNotesParts.push('--- END DRAFT ---')
+          if (draftedBy) taskNotesParts.push(`(Drafted by ${draftedBy})`)
+          taskNotesParts.push('')
+        }
+        taskNotesParts.push(`[BDR proposal ${p.id}] ${p.reason}`)
+        taskNotesParts.push(`Expected: ${p.expectedOutcome}`)
+        if (payload.templateHint) taskNotesParts.push(`Template hint: ${payload.templateHint}`)
+
         const res = await api.task.create({
-          title: p.title,
+          title: draftedSubject || p.title,
           dueDate: new Date().toISOString(),
           priority: 'high',
           contactId: (payload.contactId as string) || (p.contactIds || '').split(',')[0] || '',
           dealId: (payload.dealId as string) || p.dealId || '',
-          notes: `[BDR proposal ${p.id}] ${p.reason}\n\nExpected: ${p.expectedOutcome}\n\nTemplate hint: ${payload.templateHint || '(none)'}`,
+          notes: taskNotesParts.join('\n'),
           status: 'open',
           createdAt: new Date().toISOString(),
         })
         if (!res.ok) return { ok: false, error: res.error }
-        return { ok: true, output: `Outreach handoff task created — review & send.` }
+        return {
+          ok: true,
+          output: draftedBody
+            ? `Outreach handoff task created with AI draft — review + send.`
+            : `Outreach handoff task created — review & send.`,
+        }
       }
 
       case 'pause-enrollment': {

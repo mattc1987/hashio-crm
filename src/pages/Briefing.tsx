@@ -3,13 +3,14 @@ import {
   Sparkles, RefreshCw, Brain, CheckCircle2, X,
   ShieldAlert, ShieldCheck, Shield, ChevronDown, ChevronRight,
   Undo2, Zap, Send, CheckSquare, Briefcase, MessageSquare,
-  Mail, UserPlus, FileText, Settings as SettingsIcon, Filter,
+  Mail, UserPlus, FileText, Settings as SettingsIcon, Filter, Wand2,
 } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
-import { Card, CardHeader, PageHeader, Stat, Badge, Button, Empty } from '../components/ui'
+import { Card, CardHeader, PageHeader, Stat, Badge, Button, Empty, Input, Textarea } from '../components/ui'
 import { generateBriefing } from '../lib/briefing'
 import { runEngine, makeProposalId, type ProposalDraft } from '../lib/bdrEngine'
 import { executeProposal } from '../lib/bdrExecutor'
+import { draftMessage as aiDraftMessage, type DraftResult } from '../lib/bdrAi'
 import '../lib/bdrRules' // registers rules as a side effect
 import { api } from '../lib/api'
 import type { Proposal, ProposalActionKind, ProposalCategory, ProposalRisk, SheetData } from '../lib/types'
@@ -112,15 +113,43 @@ export function Briefing() {
 
   if (!data) return <PageHeader title="AI BDR" />
 
-  const handleApprove = async (p: Proposal, runImmediately = false) => {
+  const handleApprove = async (p: Proposal, runImmediately = false, draft?: DraftResult) => {
     setRunning((s) => new Set([...s, p.id]))
     try {
+      // If we have an AI draft, merge subject+body into the action payload so
+      // the executor can pick it up.
+      let actionPayload = p.actionPayload
+      if (draft) {
+        try {
+          const existing = JSON.parse(p.actionPayload || '{}') as Record<string, unknown>
+          actionPayload = JSON.stringify({
+            ...existing,
+            draftedSubject: draft.subject,
+            draftedBody: draft.body,
+            draftedBy: draft.model,
+          })
+        } catch {
+          actionPayload = JSON.stringify({
+            draftedSubject: draft.subject,
+            draftedBody: draft.body,
+            draftedBy: draft.model,
+          })
+        }
+      }
+      const finalProposal: Proposal = { ...p, actionPayload }
+
       // Persist as approved immediately. If it's already persisted, update.
       const existing = data.proposals.find((x) => x.id === p.id)
       const approvedAt = new Date().toISOString()
 
       if (existing) {
-        await api.proposal.update({ id: p.id, status: 'approved', resolvedAt: approvedAt, resolvedBy: 'matt' })
+        await api.proposal.update({
+          id: p.id,
+          status: 'approved',
+          resolvedAt: approvedAt,
+          resolvedBy: 'matt',
+          actionPayload,
+        })
       } else {
         await api.proposal.create({
           id: p.id,
@@ -133,7 +162,7 @@ export function Briefing() {
           reason: p.reason,
           expectedOutcome: p.expectedOutcome,
           actionKind: p.actionKind,
-          actionPayload: p.actionPayload,
+          actionPayload,
           status: 'approved',
           createdAt: p.createdAt || approvedAt,
           resolvedAt: approvedAt,
@@ -147,12 +176,12 @@ export function Briefing() {
       }
 
       if (runImmediately) {
-        await runProposal(p)
+        await runProposal(finalProposal)
       } else {
         // Schedule auto-execution after the undo window (sensitive risks NEVER auto-run).
         if (p.risk !== 'sensitive') {
           const t = window.setTimeout(() => {
-            runProposal(p)
+            runProposal(finalProposal)
           }, UNDO_WINDOW_MS)
           undoTimers.current.set(p.id, t)
         }
@@ -362,8 +391,8 @@ export function Briefing() {
               proposal={p}
               data={data}
               loading={running.has(p.id)}
-              onApprove={() => handleApprove(p, false)}
-              onApproveNow={() => handleApprove(p, true)}
+              onApprove={(draft) => handleApprove(p, false, draft)}
+              onApproveNow={(draft) => handleApprove(p, true, draft)}
               onSkip={() => handleSkip(p)}
             />
           ))}
@@ -429,16 +458,36 @@ function ProposalCard({
   proposal: Proposal
   data: SheetData
   loading: boolean
-  onApprove: () => void
-  onApproveNow: () => void
+  onApprove: (draft?: DraftResult) => void
+  onApproveNow: (draft?: DraftResult) => void
   onSkip: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  const [drafting, setDrafting] = useState(false)
+  const [draft, setDraft] = useState<DraftResult | null>(null)
+  const [draftError, setDraftError] = useState<string | null>(null)
+  const [editingDraft, setEditingDraft] = useState(false)
   const isApproved = proposal.status === 'approved' || proposal.status === 'executed'
   const isFailed = proposal.status === 'failed'
+  const isSendable = proposal.actionKind === 'send-email' || proposal.actionKind === 'send-sms'
 
   const subjectChips = useMemo(() => buildSubjectChips(proposal, data), [proposal, data])
   const actionDetails = useMemo(() => describeAction(proposal), [proposal])
+
+  const handleDraft = async () => {
+    setDrafting(true)
+    setDraftError(null)
+    try {
+      const result = await aiDraftMessage(proposal, data)
+      setDraft(result)
+      setEditingDraft(true)
+      setExpanded(true)
+    } catch (err) {
+      setDraftError((err as Error).message)
+    } finally {
+      setDrafting(false)
+    }
+  }
 
   return (
     <Card padded={false} className={cn(
@@ -477,6 +526,58 @@ function ProposalCard({
         {/* Expanded details */}
         {expanded && (
           <div className="px-5 pb-3 -mt-2 text-[12px] flex flex-col gap-2.5">
+            {/* AI draft (sendable proposals) */}
+            {draft && editingDraft && (
+              <div className="surface-2 rounded-[var(--radius-md)] p-3 flex flex-col gap-2 border border-[color:rgba(122,94,255,0.2)]">
+                <div className="flex items-center gap-1.5">
+                  <Wand2 size={12} className="text-[var(--color-brand-600)]" />
+                  <span className="text-[10px] uppercase tracking-wider text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)] font-semibold">
+                    Claude draft — edit before approving
+                  </span>
+                  <button
+                    onClick={handleDraft}
+                    className="ml-auto text-[10px] text-muted hover:text-body inline-flex items-center gap-1"
+                    disabled={drafting}
+                  >
+                    <RefreshCw size={10} /> Regenerate
+                  </button>
+                </div>
+                {proposal.actionKind === 'send-email' && (
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] font-semibold mb-1">Subject</div>
+                    <Input
+                      value={draft.subject}
+                      onChange={(e) => setDraft({ ...draft, subject: e.target.value })}
+                      className="text-[12px]"
+                    />
+                  </div>
+                )}
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] font-semibold mb-1">Body</div>
+                  <Textarea
+                    value={draft.body}
+                    onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+                    rows={proposal.actionKind === 'send-sms' ? 3 : 8}
+                    className="text-[12px]"
+                  />
+                  {proposal.actionKind === 'send-sms' && (
+                    <div className="text-[10px] text-muted mt-1 text-right">
+                      {draft.body.length}/320 chars · {Math.ceil(draft.body.length / 160) || 1} segment(s)
+                    </div>
+                  )}
+                </div>
+                <div className="text-[10px] text-[var(--text-faint)] flex items-center justify-between">
+                  <span>Model: {draft.model}</span>
+                  <span>Approve to save the draft into a handoff task — you send manually until auto-send is enabled.</span>
+                </div>
+              </div>
+            )}
+            {draftError && (
+              <div className="text-[11px] text-[var(--color-danger)] surface-2 rounded p-2">
+                Draft failed: {draftError}. Make sure your Anthropic key is set in Settings.
+              </div>
+            )}
+
             <div>
               <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] font-semibold mb-1">Expected outcome</div>
               <div className="text-body">{proposal.expectedOutcome}</div>
@@ -525,11 +626,22 @@ function ProposalCard({
                 >
                   Skip
                 </Button>
+                {isSendable && !draft && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<Wand2 size={12} />}
+                    onClick={handleDraft}
+                    disabled={drafting || loading}
+                  >
+                    {drafting ? 'Drafting…' : 'Draft with AI'}
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="secondary"
                   icon={<CheckCircle2 size={12} />}
-                  onClick={onApprove}
+                  onClick={() => onApprove(draft || undefined)}
                   disabled={loading}
                 >
                   Approve
@@ -539,7 +651,7 @@ function ProposalCard({
                     size="sm"
                     variant="primary"
                     icon={<Zap size={12} />}
-                    onClick={onApproveNow}
+                    onClick={() => onApproveNow(draft || undefined)}
                     disabled={loading}
                   >
                     Approve & run
