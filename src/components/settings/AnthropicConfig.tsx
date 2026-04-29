@@ -13,8 +13,20 @@ interface AnthropicStatus {
   sampleResponse: string
 }
 
+const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929'
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || ''
 const APPS_SCRIPT_KEY = import.meta.env.VITE_APPS_SCRIPT_KEY || ''
+
+class BackendOutOfDateError extends Error {
+  constructor(action: string) {
+    super(
+      `The deployed Apps Script doesn't know the "${action}" action yet — ` +
+      `redeploy apps-script/Code.gs (Deploy → Manage deployments → Edit → New version → Deploy) ` +
+      `to enable the Anthropic integration.`,
+    )
+    this.name = 'BackendOutOfDateError'
+  }
+}
 
 async function call<T>(action: string, params: Record<string, unknown> = {}): Promise<T> {
   const url = new URL(APPS_SCRIPT_URL)
@@ -24,7 +36,12 @@ async function call<T>(action: string, params: Record<string, unknown> = {}): Pr
   const res = await fetch(url.toString(), { method: 'GET' })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   const json = await res.json()
-  if (!json.ok) throw new Error(json.error || 'Failed')
+  if (!json.ok) {
+    if (typeof json.error === 'string' && /unknown action/i.test(json.error)) {
+      throw new BackendOutOfDateError(action)
+    }
+    throw new Error(json.error || 'Failed')
+  }
   return json.data as T
 }
 
@@ -42,10 +59,11 @@ export function AnthropicConfig() {
     try {
       const s = await call<AnthropicStatus>('getAnthropicStatus')
       setStatus(s)
-      setDraft({ apiKey: '', model: s.model || 'claude-sonnet-4-5-20250929' })
+      setDraft({ apiKey: '', model: s.model || DEFAULT_MODEL })
     } catch (err) {
       setStatus(null)
       setTestResult({ ok: false, message: (err as Error).message })
+      setEditing(true)
     } finally {
       setLoading(false)
     }
@@ -104,11 +122,21 @@ export function AnthropicConfig() {
             <Badge tone="success">Connected</Badge>
           ) : status?.configured ? (
             <Badge tone="warning">Auth failed</Badge>
+          ) : testResult && !testResult.ok && /redeploy|unknown action/i.test(testResult.message) ? (
+            <Badge tone="danger">Backend out of date</Badge>
           ) : (
             <Badge tone="neutral">Not configured</Badge>
           )
         }
       />
+
+      {/* Backend-out-of-date warning is the most important state when it fires */}
+      {testResult && !testResult.ok && /redeploy|unknown action/i.test(testResult.message) && (
+        <div className="mb-3 p-3 rounded-[var(--radius-md)] bg-[color:rgba(239,76,76,0.08)] border border-[color:rgba(239,76,76,0.2)] text-[12px]">
+          <div className="font-semibold text-[var(--color-danger)] mb-1">Apps Script needs to be redeployed</div>
+          <div className="text-muted leading-relaxed">{testResult.message}</div>
+        </div>
+      )}
 
       {loading ? (
         <div className="text-[12px] text-muted py-3">Checking status…</div>
@@ -188,14 +216,21 @@ export function AnthropicConfig() {
             </div>
           </Field>
 
-          <Field label="Model" hint="Default is claude-sonnet-4-5 — fastest + cheapest with great quality.">
-            <Input
-              value={draft.model}
-              onChange={(e) => setDraft({ ...draft, model: e.target.value })}
-              placeholder="claude-sonnet-4-5-20250929"
-              className="font-mono text-[12px]"
-            />
-          </Field>
+          <details className="text-[12px]">
+            <summary className="cursor-pointer text-muted hover:text-body select-none">
+              Advanced — model override
+            </summary>
+            <div className="mt-2">
+              <Field label="Model" hint="Leave blank to use claude-sonnet-4-5 (recommended). Anthropic doesn't give you the model when you create the key — it's just a string passed in API calls.">
+                <Input
+                  value={draft.model}
+                  onChange={(e) => setDraft({ ...draft, model: e.target.value })}
+                  placeholder={DEFAULT_MODEL}
+                  className="font-mono text-[12px]"
+                />
+              </Field>
+            </div>
+          </details>
 
           <div className="flex items-center gap-2 mt-1">
             <Button variant="primary" onClick={save} disabled={saving}>

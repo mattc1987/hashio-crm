@@ -148,12 +148,22 @@ export const api = {
     update: (payload: Record<string, unknown>) => save('proposals', 'update', payload),
     remove: (id: string) => save('proposals', 'delete', { id }),
   },
+  emailSend: {
+    create: (payload: Record<string, unknown>) => save('emailSends', 'create', payload),
+    update: (payload: Record<string, unknown>) => save('emailSends', 'update', payload),
+    remove: (id: string) => save('emailSends', 'delete', { id }),
+  },
 }
 
-export function invokeAction(action: string, params: Record<string, unknown>): Promise<WriteResult> {
+export function invokeAction(action: string, params: Record<string, unknown>): Promise<WriteResult & { data?: unknown }> {
   if (!hasWriteBackend()) return Promise.resolve({ ok: false, error: 'No backend configured' })
   return callScript(action, params).then(
-    () => ({ ok: true } as WriteResult),
+    (raw) => {
+      // The script returns { ok, data, error } — surface them all.
+      const j = raw as { ok?: boolean; data?: unknown; error?: string }
+      if (j && j.ok === false) return { ok: false, error: j.error || 'Failed' }
+      return { ok: true, data: j?.data } as WriteResult & { data?: unknown }
+    },
     (err: Error) => ({ ok: false, error: err.message } as WriteResult),
   )
 }

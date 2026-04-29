@@ -211,9 +211,12 @@ export function applySafetyRails(
       d.risk = 'sensitive'
     }
 
-    // ---- Don't re-propose a still-pending proposal (dedupe) ----
+    // ---- Don't re-propose if there's any existing proposal for the same
+    // logical thing — INCLUDING skipped / cancelled / executed. If Matt
+    // already decided on this once, respect his decision until the data
+    // changes enough to break the dedupe key.
+    // (Phase 2: time-window unsnooze for stale-deal nudges etc.)
     const dupExisting = ctx.existingProposals.find((p) => {
-      if (p.status !== 'proposed' && p.status !== 'approved') return false
       if (p.ruleId !== d.ruleId) return false
       if (d.dedupeKey && p.dedupeKey === d.dedupeKey) return true
       // Fallback: same rule + same first contact + same action kind

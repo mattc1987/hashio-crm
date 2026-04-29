@@ -289,6 +289,31 @@ function handle_(e) {
         break;
       }
 
+      case 'sendBdrEmail': {
+        // Real email send via Gmail. Used by the BDR executor when an
+        // approved sensitive proposal carries an AI-drafted message.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = sendBdrEmail_(payload);
+        break;
+      }
+
+      case 'checkReplies': {
+        // Manually trigger reply detection — scans recent EmailSends with a
+        // threadId, checks Gmail for new messages, sets repliedAt.
+        out.ok = true;
+        out.data = checkReplies_();
+        break;
+      }
+
+      case 'installReplyTrigger': {
+        // Install a 5-minute time-driven trigger so checkReplies runs on its
+        // own without manual clicks. Idempotent — safely re-runs.
+        out.ok = true;
+        out.data = installReplyTrigger_();
+        break;
+      }
+
       default:
         throw new Error('Unknown action: ' + params.action);
     }
@@ -1042,6 +1067,37 @@ function narrativeReason_(payload) {
 }
 
 
+/* ---------- BDR email send (real Gmail send) ---------- */
+/* Called by the BDR executor when an approved send-email proposal has an
+ * AI-drafted (or hand-edited) subject + body. Sends via Gmail with the
+ * existing sequence-email infra (so opens + clicks + replies tracking all
+ * just work). Logs into EmailSends.
+ */
+function sendBdrEmail_(payload) {
+  if (!payload.to)      throw new Error('Missing "to" recipient');
+  if (!payload.subject) throw new Error('Missing "subject"');
+  if (!payload.body)    throw new Error('Missing "body"');
+
+  // Reuse the sequence-email infra so tracking + logging happen the same way.
+  // No enrollmentId/sequenceId/stepId — this is an ad-hoc BDR send.
+  const result = sendSequenceEmail_({
+    enrollmentId: '',
+    sequenceId: '',
+    stepId: '',
+    contactId: payload.contactId || '',
+    to: payload.to,
+    subject: payload.subject,
+    body: payload.body,
+    trackOpens: payload.trackOpens !== false,
+  });
+  return {
+    sendId: result.sendId,
+    subject: result.subject,
+    sentAt: new Date().toISOString(),
+  };
+}
+
+
 /* ---------- SMS via Twilio ---------- */
 
 function sendSequenceSms_(opts) {
@@ -1177,6 +1233,23 @@ function checkReplies() {
   } catch (err) {
     Logger.log('checkReplies error: ' + (err && err.message));
   }
+}
+
+/** Install a 5-minute time-driven trigger to auto-run checkReplies.
+ *  Idempotent — removes any existing checkReplies trigger first. */
+function installReplyTrigger_() {
+  // Remove old triggers for checkReplies
+  const triggers = ScriptApp.getProjectTriggers();
+  let removed = 0;
+  for (const t of triggers) {
+    if (t.getHandlerFunction() === 'checkReplies') {
+      ScriptApp.deleteTrigger(t);
+      removed += 1;
+    }
+  }
+  // Install a fresh one
+  ScriptApp.newTrigger('checkReplies').timeBased().everyMinutes(5).create();
+  return { installed: true, removed: removed, intervalMinutes: 5 };
 }
 
 function checkReplies_() {

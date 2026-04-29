@@ -10,7 +10,7 @@
 // elapses, OR immediately on "Approve & run now". Either way, NEVER runs
 // before status is 'approved'.
 
-import { api } from './api'
+import { api, invokeAction } from './api'
 import type { Proposal, SheetData } from './types'
 
 export interface ExecutionResult {
@@ -184,22 +184,68 @@ export async function executeProposal(
         return { ok: true, output: `Enrolled contact ${contactId} in sequence ${sequenceId}` }
       }
 
-      case 'send-email':
-      case 'send-sms': {
-        // Phase 1: we don't auto-send raw emails/SMS from here. Instead, we
-        // create a high-priority TASK that includes the AI-drafted message
-        // (if present) for Matt to copy-paste into Gmail / Twilio. Phase 2
-        // will swap this for a real send via Apps Script Gmail / sequence-SMS.
+      case 'send-email': {
+        // If we have an AI-drafted (or hand-edited) subject + body, send it
+        // for real via Gmail. Otherwise fall back to a handoff task so Matt
+        // can write the message himself.
         const draftedSubject = (payload.draftedSubject as string) || ''
+        const draftedBody = (payload.draftedBody as string) || ''
+        const draftedBy = (payload.draftedBy as string) || ''
+
+        if (draftedSubject && draftedBody) {
+          // Resolve the recipient. Prefer payload.contactId → contact.email,
+          // fall back to payload.contactEmail (R-104 no-show recovery uses this).
+          const contactId = (payload.contactId as string) || (p.contactIds || '').split(',')[0] || ''
+          const contact = contactId ? data.contacts.find((c) => c.id === contactId) : undefined
+          const to = contact?.email || (payload.contactEmail as string) || ''
+          if (!to) return { ok: false, error: 'No recipient email — contact has no email on file.' }
+
+          const res = await invokeAction('sendBdrEmail', {
+            to,
+            subject: draftedSubject,
+            body: draftedBody,
+            contactId,
+            trackOpens: true,
+          })
+          if (!res.ok) return { ok: false, error: res.error || 'Send failed' }
+          const sentData = (res as { data?: { sendId?: string } }).data
+          return {
+            ok: true,
+            output: `Email sent to ${to}${sentData?.sendId ? ` (id ${sentData.sendId})` : ''}${draftedBy ? ` · drafted by ${draftedBy}` : ''}`,
+          }
+        }
+
+        // No draft → handoff task
+        const taskNotesParts: string[] = []
+        taskNotesParts.push(`[BDR proposal ${p.id}] ${p.reason}`)
+        taskNotesParts.push(`Expected: ${p.expectedOutcome}`)
+        if (payload.templateHint) taskNotesParts.push(`Template hint: ${payload.templateHint}`)
+        taskNotesParts.push('')
+        taskNotesParts.push('Click "Draft with AI" on the BDR proposal to generate a message — or write your own.')
+
+        const taskRes = await api.task.create({
+          title: p.title,
+          dueDate: new Date().toISOString(),
+          priority: 'high',
+          contactId: (payload.contactId as string) || (p.contactIds || '').split(',')[0] || '',
+          dealId: (payload.dealId as string) || p.dealId || '',
+          notes: taskNotesParts.join('\n'),
+          status: 'open',
+          createdAt: new Date().toISOString(),
+        })
+        if (!taskRes.ok) return { ok: false, error: taskRes.error }
+        return { ok: true, output: 'Outreach handoff task created — draft a message and send manually.' }
+      }
+
+      case 'send-sms': {
+        // SMS still flows through handoff task (Twilio toll-free pending).
+        // Once verification is approved, swap this branch to invokeAction('sendBdrSms').
         const draftedBody = (payload.draftedBody as string) || ''
         const draftedBy = (payload.draftedBy as string) || ''
 
         const taskNotesParts: string[] = []
         if (draftedBody) {
-          taskNotesParts.push('--- DRAFTED MESSAGE (review + edit before sending) ---')
-          if (p.actionKind === 'send-email' && draftedSubject) {
-            taskNotesParts.push(`Subject: ${draftedSubject}`)
-          }
+          taskNotesParts.push('--- DRAFTED SMS (review + edit before sending) ---')
           taskNotesParts.push(draftedBody)
           taskNotesParts.push('--- END DRAFT ---')
           if (draftedBy) taskNotesParts.push(`(Drafted by ${draftedBy})`)
@@ -207,10 +253,9 @@ export async function executeProposal(
         }
         taskNotesParts.push(`[BDR proposal ${p.id}] ${p.reason}`)
         taskNotesParts.push(`Expected: ${p.expectedOutcome}`)
-        if (payload.templateHint) taskNotesParts.push(`Template hint: ${payload.templateHint}`)
 
         const res = await api.task.create({
-          title: draftedSubject || p.title,
+          title: p.title,
           dueDate: new Date().toISOString(),
           priority: 'high',
           contactId: (payload.contactId as string) || (p.contactIds || '').split(',')[0] || '',
@@ -223,8 +268,8 @@ export async function executeProposal(
         return {
           ok: true,
           output: draftedBody
-            ? `Outreach handoff task created with AI draft — review + send.`
-            : `Outreach handoff task created — review & send.`,
+            ? 'SMS handoff task created with AI draft — review + send via Twilio (pending toll-free verification).'
+            : 'SMS handoff task created — review & send.',
         }
       }
 

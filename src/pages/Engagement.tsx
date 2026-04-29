@@ -1,16 +1,17 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Mail, MailOpen, MousePointerClick, Reply, Search,
   ArrowUpDown, ArrowUp, ArrowDown, AlertCircle, Send,
   Link2, Flame, ThumbsUp, MessageCircle, Eye,
-  UserPlus, Briefcase,
+  UserPlus, Briefcase, RefreshCw, CheckCircle2,
 } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
-import { Card, Input, PageHeader, Empty, Avatar, Badge, Stat } from '../components/ui'
+import { Card, Input, PageHeader, Empty, Avatar, Badge, Stat, Button } from '../components/ui'
 import { date, relativeDate } from '../lib/format'
 import type { EmailSend, Lead } from '../lib/types'
 import { parseSignals, temperatureColor, temperatureLabel, scoreLead } from '../lib/leadScoring'
+import { invokeAction, hasWriteBackend } from '../lib/api'
 import { cn } from '../lib/cn'
 
 type SortKey = 'sentAt' | 'opened' | 'clicked' | 'replied' | 'recipient' | 'sequence'
@@ -24,12 +25,52 @@ interface EnrichedSend extends EmailSend {
 }
 
 export function Engagement() {
-  const { state } = useSheetData()
+  const { state, refresh } = useSheetData()
+  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [channel, setChannel] = useState<Channel>('email')
   const [filterEngagement, setFilterEngagement] = useState<'all' | 'opened' | 'clicked' | 'replied' | 'unopened'>('all')
   const [sortKey, setSortKey] = useState<SortKey>('sentAt')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [checkingReplies, setCheckingReplies] = useState(false)
+  const [installingTrigger, setInstallingTrigger] = useState(false)
+  const [replyResult, setReplyResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  const checkReplies = async () => {
+    setCheckingReplies(true)
+    setReplyResult(null)
+    try {
+      const res = await invokeAction('checkReplies', {})
+      if (!res.ok) throw new Error(res.error || 'Failed')
+      const d = (res as { data?: { checked?: number; updated?: number } }).data
+      setReplyResult({
+        ok: true,
+        message: `Scan complete — ${d?.updated ?? 0} new replies detected${d?.checked != null ? ` (${d.checked} sends checked)` : ''}.`,
+      })
+      await refresh()
+    } catch (err) {
+      setReplyResult({ ok: false, message: (err as Error).message })
+    } finally {
+      setCheckingReplies(false)
+    }
+  }
+
+  const installTrigger = async () => {
+    setInstallingTrigger(true)
+    setReplyResult(null)
+    try {
+      const res = await invokeAction('installReplyTrigger', {})
+      if (!res.ok) throw new Error(res.error || 'Failed')
+      setReplyResult({
+        ok: true,
+        message: 'Auto-check scheduled — replies will be detected every 5 minutes from now on.',
+      })
+    } catch (err) {
+      setReplyResult({ ok: false, message: (err as Error).message })
+    } finally {
+      setInstallingTrigger(false)
+    }
+  }
 
   const data = 'data' in state ? state.data : undefined
   const sends = data?.emailSends ?? []
@@ -178,7 +219,49 @@ export function Engagement() {
       {channel === 'linkedin' ? (
         <LinkedInEngagementCard leads={leads} query={query} setQuery={setQuery} />
       ) : (
-      /* ---------------- EMAIL channel: filters + table ---------------- */
+      <>
+      {/* Reply-detection toolbar */}
+      {hasWriteBackend() && (
+        <Card>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[12px] text-muted">
+              Replies are detected from your Gmail thread — run a scan now or schedule auto-checks every 5 min.
+            </span>
+            <Button
+              size="sm"
+              icon={<RefreshCw size={13} />}
+              onClick={checkReplies}
+              disabled={checkingReplies}
+              className="ml-auto"
+            >
+              {checkingReplies ? 'Scanning…' : 'Check for replies now'}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<CheckCircle2 size={13} />}
+              onClick={installTrigger}
+              disabled={installingTrigger}
+            >
+              {installingTrigger ? 'Installing…' : 'Auto-check every 5 min'}
+            </Button>
+          </div>
+          {replyResult && (
+            <div
+              className={cn(
+                'mt-3 p-2 rounded-[var(--radius-md)] text-[12px]',
+                replyResult.ok
+                  ? 'bg-[color:rgba(48,179,107,0.1)] text-[var(--color-success)]'
+                  : 'bg-[color:rgba(239,76,76,0.08)] text-[var(--color-danger)]',
+              )}
+            >
+              {replyResult.message}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* ---------------- EMAIL channel: filters + table ---------------- */}
       <Card padded={false}>
         <div className="p-3 border-soft-b flex flex-col sm:flex-row gap-2">
           <div className="relative flex-1 min-w-[220px]">
@@ -235,13 +318,18 @@ export function Engagement() {
               </thead>
               <tbody className="divide-y divide-[color:var(--border)]">
                 {filtered.map((s) => (
-                  <SendRow key={s.id} send={s} />
+                  <SendRow
+                    key={s.id}
+                    send={s}
+                    onOpen={() => s.contactId && navigate(`/contacts/${s.contactId}`)}
+                  />
                 ))}
               </tbody>
             </table>
           </div>
         )}
       </Card>
+      </>
       )}
     </div>
   )
@@ -482,14 +570,21 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
   )
 }
 
-function SendRow({ send }: { send: EnrichedSend }) {
+function SendRow({ send, onOpen }: { send: EnrichedSend; onOpen?: () => void }) {
+  const clickable = !!send.contactId
   return (
-    <tr className="hover:surface-2 transition-colors">
+    <tr
+      className={cn(
+        'hover:surface-2 transition-colors',
+        clickable && 'cursor-pointer',
+      )}
+      onClick={clickable ? onOpen : undefined}
+    >
       <td className="px-4 py-3">
         <div className="flex items-center gap-2.5 min-w-0">
           <Avatar name={send.recipientName} size={28} />
           <div className="min-w-0">
-            <div className="text-[13px] font-medium text-body truncate max-w-[180px]">{send.recipientName}</div>
+            <div className="text-[13px] font-medium text-body truncate max-w-[180px] hover:text-[var(--color-brand-700)]">{send.recipientName}</div>
             <div className="text-[11px] text-muted truncate max-w-[180px]">{send.to}</div>
           </div>
         </div>

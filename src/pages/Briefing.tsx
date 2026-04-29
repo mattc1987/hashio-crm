@@ -56,6 +56,7 @@ export function Briefing() {
   const [filter, setFilter] = useState<Filter>('all')
   const [showHeuristic, setShowHeuristic] = useState(false)
   const [running, setRunning] = useState<Set<string>>(new Set())
+  const [undoingAll, setUndoingAll] = useState(false)
   const data = 'data' in state ? state.data : undefined
 
   const engineResult = useMemo(() => {
@@ -74,11 +75,14 @@ export function Briefing() {
   const persistedProposals = data?.proposals || []
   const newDrafts = useMemo(() => {
     if (!engineResult) return []
-    // Filter out drafts whose dedupeKey already matches a persisted proposal.
+    // Filter out drafts whose dedupeKey matches a persisted proposal — INCLUDING
+    // skipped / cancelled / executed / failed. If Matt skipped this once, the
+    // rule shouldn't re-propose it on the next render. (Phase 2: time-window
+    // unsnooze so stale-deal nudges can re-fire after 14 days.)
     const existingKeys = new Set(
-      persistedProposals
-        .filter((p) => p.status === 'proposed')
-        .map((p) => `${p.ruleId}:${p.contactIds.split(',')[0] || ''}:${p.actionKind}`),
+      persistedProposals.map(
+        (p) => `${p.ruleId}:${p.contactIds.split(',')[0] || ''}:${p.actionKind}`,
+      ),
     )
     return engineResult.proposals.filter((d) => {
       const k = `${d.ruleId}:${(d.contactIds || [])[0] || ''}:${d.actionKind}`
@@ -111,9 +115,12 @@ export function Briefing() {
     }
   }, [])
 
-  if (!data) return <PageHeader title="AI BDR" />
-
   const handleApprove = async (p: Proposal, runImmediately = false, draft?: DraftResult) => {
+    if (!data) return
+    // Sensitive proposals never auto-execute via the timer (safety rail). So
+    // for sensitive, "Approve" IS the explicit consent — run the executor
+    // immediately. Non-sensitive can still queue with the 5-min undo window.
+    if (p.risk === 'sensitive') runImmediately = true
     setRunning((s) => new Set([...s, p.id]))
     try {
       // If we have an AI draft, merge subject+body into the action payload so
@@ -192,6 +199,7 @@ export function Briefing() {
   }
 
   const runProposal = async (p: Proposal) => {
+    if (!data) return
     const approvedProposal: Proposal = { ...p, status: 'approved' }
     const result = await executeProposal(approvedProposal, data)
     const ts = new Date().toISOString()
@@ -205,6 +213,7 @@ export function Briefing() {
   }
 
   const handleSkip = async (p: Proposal) => {
+    if (!data) return
     setRunning((s) => new Set([...s, p.id]))
     try {
       const existing = data.proposals.find((x) => x.id === p.id)
@@ -259,13 +268,22 @@ export function Briefing() {
     }
   }
 
-  // Recently-approved (within undo window) so we can show the undo bar
+  // Recently-approved (within undo window) so we can show the undo bar.
+  // Sensitive proposals run immediately on approve, so they never appear here —
+  // only safe/moderate ones queued behind the 5-min auto-execute timer.
   const undoableProposals = useMemo(() => {
     const cutoff = Date.now() - UNDO_WINDOW_MS
     return persistedProposals.filter(
-      (p) => p.status === 'approved' && p.resolvedAt && new Date(p.resolvedAt).getTime() > cutoff,
+      (p) =>
+        p.status === 'approved' &&
+        p.risk !== 'sensitive' &&
+        p.resolvedAt &&
+        new Date(p.resolvedAt).getTime() > cutoff,
     )
   }, [persistedProposals])
+
+  // Early return AFTER all hooks (rules of hooks).
+  if (!data) return <PageHeader title="AI BDR" />
 
   return (
     <div className="flex flex-col gap-6">
@@ -336,15 +354,41 @@ export function Briefing() {
       {/* Undo bar */}
       {undoableProposals.length > 0 && (
         <Card className="border-[var(--color-warning)]/30 bg-[color:rgba(245,165,36,0.06)]">
-          <div className="flex items-center gap-3">
-            <Undo2 size={14} className="text-[var(--color-warning)]" />
-            <div className="text-[12px] flex-1">
-              <strong>{undoableProposals.length}</strong> approval{undoableProposals.length === 1 ? '' : 's'} pending — 5 min to undo before auto-execute.
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 text-[12px]">
+              <Undo2 size={14} className="text-[var(--color-warning)]" />
+              <span>
+                <strong>{undoableProposals.length}</strong> approval{undoableProposals.length === 1 ? '' : 's'} queued — auto-running in 5 min unless undone.
+              </span>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={undoingAll}
+                onClick={async () => {
+                  setUndoingAll(true)
+                  try {
+                    // Parallel undo — local cache writes are sync, so all 8
+                    // flip to "cancelled" instantly. Network calls are
+                    // best-effort and run in parallel.
+                    await Promise.all(undoableProposals.map((p) => handleUndo(p)))
+                  } finally {
+                    setUndoingAll(false)
+                  }
+                }}
+                className="ml-auto"
+              >
+                {undoingAll ? 'Undoing…' : `Undo all (${undoableProposals.length})`}
+              </Button>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {undoableProposals.map((p) => (
-                <Button key={p.id} size="sm" variant="ghost" onClick={() => handleUndo(p)}>
-                  Undo: {p.title.slice(0, 30)}{p.title.length > 30 ? '…' : ''}
+                <Button
+                  key={p.id}
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => handleUndo(p)}
+                >
+                  Undo: {p.title.slice(0, 40)}{p.title.length > 40 ? '…' : ''}
                 </Button>
               ))}
             </div>
@@ -394,6 +438,7 @@ export function Briefing() {
               onApprove={(draft) => handleApprove(p, false, draft)}
               onApproveNow={(draft) => handleApprove(p, true, draft)}
               onSkip={() => handleSkip(p)}
+              onRunNow={() => runProposal(p)}
             />
           ))}
         </div>
@@ -439,6 +484,84 @@ export function Briefing() {
           </div>
         </div>
       </Card>
+
+      {/* Diagnostic panel — shows what got dropped + why */}
+      {engineResult && (
+        <Card padded={false}>
+          <details>
+            <summary className="px-5 py-3 cursor-pointer text-[12px] font-medium text-muted hover:text-body select-none">
+              Diagnostics — {engineResult.rawDraftCount} drafts generated, {engineResult.proposals.length} surfaced, {engineResult.dropped.length} dropped by safety rails
+            </summary>
+            <div className="px-5 pb-4 text-[11px] space-y-2.5">
+              <div className="font-mono text-[10px] surface-2 rounded p-2">
+                Rules ran: {engineResult.rulesRun} · Drafts: {engineResult.rawDraftCount} · Surfaced: {engineResult.proposals.length} · Dropped: {engineResult.dropped.length} · Cap: {engineResult.cappedAt}
+              </div>
+              {engineResult.dropped.length > 0 ? (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] font-semibold mb-1">
+                    Dropped drafts (first 20)
+                  </div>
+                  <ul className="space-y-1.5">
+                    {engineResult.dropped.slice(0, 20).map((d, i) => (
+                      <li key={i} className="surface-2 rounded p-2">
+                        <div className="font-medium text-body">{d.draft.title}</div>
+                        <div className="text-muted">
+                          <span className="font-mono">{d.draft.ruleId}</span> · {d.draft.actionKind} · {d.draft.risk}
+                        </div>
+                        <div className="text-[var(--color-warning)] mt-0.5">→ {d.reason}</div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="text-muted">No drafts were dropped by safety rails.</div>
+              )}
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] font-semibold mb-1 mt-3">
+                  Test contact lookup
+                </div>
+                <DiagnosticTestContact data={data} />
+              </div>
+            </div>
+          </details>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+function DiagnosticTestContact({ data }: { data: SheetData }) {
+  const TEST_EMAIL = 'matt@bisoninfused.com'
+  const contact = data.contacts.find(
+    (c) => c.email && c.email.toLowerCase() === TEST_EMAIL,
+  )
+  if (!contact) {
+    return (
+      <div className="surface-2 rounded p-2 text-muted">
+        No contact found with email <span className="font-mono">{TEST_EMAIL}</span>. Click "Seed test scenario" on /settings.
+      </div>
+    )
+  }
+  const sends = data.emailSends.filter((s) => s.contactId === contact.id)
+  const matchingSend = sends.find(
+    (s) =>
+      s.openedAt &&
+      !s.repliedAt &&
+      Date.now() - new Date(s.openedAt).getTime() > 24 * 60 * 60 * 1000 &&
+      Date.now() - new Date(s.openedAt).getTime() < 5 * 24 * 60 * 60 * 1000,
+  )
+  return (
+    <div className="surface-2 rounded p-2 space-y-1">
+      <div>Contact found: <strong className="text-body">{contact.firstName} {contact.lastName}</strong> · status="{contact.status}" · id=<span className="font-mono">{contact.id}</span></div>
+      <div>Email sends to this contact: {sends.length}</div>
+      {sends.map((s) => (
+        <div key={s.id} className="font-mono text-[10px] pl-2 border-l-2 border-[var(--border)]">
+          id={s.id} · sentAt={s.sentAt?.slice(0, 10)} · openedAt={s.openedAt?.slice(0, 10) || '—'} · repliedAt={s.repliedAt?.slice(0, 10) || '—'}
+        </div>
+      ))}
+      <div className="mt-1">
+        Matches R-101 window (openedAt 1-5 days ago, no reply): {matchingSend ? <span className="text-[var(--color-success)]">YES</span> : <span className="text-[var(--color-danger)]">NO</span>}
+      </div>
     </div>
   )
 }
@@ -454,6 +577,7 @@ function ProposalCard({
   onApprove,
   onApproveNow,
   onSkip,
+  onRunNow,
 }: {
   proposal: Proposal
   data: SheetData
@@ -461,13 +585,14 @@ function ProposalCard({
   onApprove: (draft?: DraftResult) => void
   onApproveNow: (draft?: DraftResult) => void
   onSkip: () => void
+  onRunNow: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [drafting, setDrafting] = useState(false)
   const [draft, setDraft] = useState<DraftResult | null>(null)
   const [draftError, setDraftError] = useState<string | null>(null)
   const [editingDraft, setEditingDraft] = useState(false)
-  const isApproved = proposal.status === 'approved' || proposal.status === 'executed'
+  const isExecuted = proposal.status === 'executed'
   const isFailed = proposal.status === 'failed'
   const isSendable = proposal.actionKind === 'send-email' || proposal.actionKind === 'send-sms'
 
@@ -493,7 +618,7 @@ function ProposalCard({
     <Card padded={false} className={cn(
       'transition-all',
       proposal.priority === 'critical' && 'border-[var(--color-danger)]/30',
-      isApproved && 'opacity-70',
+      isExecuted && 'opacity-70',
     )}>
       <div className="flex flex-col">
         {/* Header row */}
@@ -609,8 +734,21 @@ function ProposalCard({
             {expanded ? 'Hide details' : 'Details'}
           </button>
           <div className="flex items-center gap-2">
-            {isApproved ? (
-              <Badge tone="success">{proposal.status === 'executed' ? 'Executed' : 'Approved'}</Badge>
+            {proposal.status === 'approved' ? (
+              <>
+                <Badge tone="warning">Approved · awaiting run</Badge>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon={<Zap size={12} />}
+                  onClick={onRunNow}
+                  disabled={loading}
+                >
+                  Run now
+                </Button>
+              </>
+            ) : proposal.status === 'executed' ? (
+              <Badge tone="success">Executed</Badge>
             ) : isFailed ? (
               <Badge tone="danger">Failed — see details</Badge>
             ) : proposal.status === 'skipped' || proposal.status === 'cancelled' ? (
@@ -629,7 +767,7 @@ function ProposalCard({
                 {isSendable && !draft && (
                   <Button
                     size="sm"
-                    variant="ghost"
+                    variant="primary"
                     icon={<Wand2 size={12} />}
                     onClick={handleDraft}
                     disabled={drafting || loading}
