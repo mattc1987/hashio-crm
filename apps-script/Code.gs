@@ -361,6 +361,35 @@ function handle_(e) {
         break;
       }
 
+      case 'sendDailyDigest': {
+        // Manually fire the daily digest now (for testing). Same code path as
+        // the cron trigger.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = sendDailyDigest_(payload.recipient || '');
+        break;
+      }
+
+      case 'installDailyDigestTrigger': {
+        // Install/refresh the 8am-daily time trigger. Idempotent.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = installDailyDigestTrigger_(payload.hour || 8, payload.recipient || '');
+        break;
+      }
+
+      case 'getDailyDigestStatus': {
+        out.ok = true;
+        out.data = getDailyDigestStatus_();
+        break;
+      }
+
+      case 'uninstallDailyDigestTrigger': {
+        out.ok = true;
+        out.data = uninstallDailyDigestTrigger_();
+        break;
+      }
+
       default:
         throw new Error('Unknown action: ' + params.action);
     }
@@ -1487,6 +1516,352 @@ function aiStrategistProposals_(payload) {
   try { parsed = JSON.parse(cleaned); } catch (e) { /* return empty */ }
   parsed.model = model;
   return parsed;
+}
+
+
+/* ---------- Daily Digest — 8am proactive briefing email ---------- */
+/* Time-trigger fires every morning, builds a digest from the Sheet,
+ * calls aiDashboardBriefing_, and emails Matt the priorities. The
+ * email includes one-click links to each priority entity in the CRM.
+ */
+
+const DIGEST_PROP_RECIPIENT = 'DIGEST_RECIPIENT';
+const DIGEST_PROP_HOUR = 'DIGEST_HOUR';
+const DIGEST_PROP_LASTRUN = 'DIGEST_LASTRUN';
+const DIGEST_TRIGGER_FN = 'dailyDigestCron';
+
+/** Public function the time-trigger fires. Wraps the implementation to
+ *  swallow errors so the cron doesn't disable itself. */
+function dailyDigestCron() {
+  try {
+    sendDailyDigest_('');
+  } catch (err) {
+    Logger.log('dailyDigest error: ' + (err && err.message));
+  }
+}
+
+/** Build a minimal digest from Sheet tabs + call Claude + email it. */
+function sendDailyDigest_(overrideRecipient) {
+  const props = PropertiesService.getScriptProperties();
+  const recipient = (overrideRecipient || props.getProperty(DIGEST_PROP_RECIPIENT) || Session.getActiveUser().getEmail() || '').trim();
+  if (!recipient) throw new Error('No recipient configured for daily digest. Set one in Settings.');
+
+  const digest = buildDigestFromSheet_();
+  const briefing = aiDashboardBriefing_({ digest: digest });
+  const html = renderDigestHtml_(briefing, digest);
+  const subject = '☀️ Hashio BDR — ' + (briefing.greeting || 'Daily briefing');
+
+  GmailApp.sendEmail(recipient, subject, briefingPlainText_(briefing, digest), {
+    htmlBody: html,
+    name: 'Hashio AI BDR',
+  });
+
+  props.setProperty(DIGEST_PROP_LASTRUN, new Date().toISOString());
+  return { sent: true, recipient: recipient, sentAt: new Date().toISOString(), priorityCount: (briefing.priorities || []).length };
+}
+
+/** Read the Sheet and build the same digest shape the frontend uses. */
+function buildDigestFromSheet_() {
+  const ss = getSpreadsheet_();
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+  const dayOfWeek = today.toLocaleDateString('en-US', { weekday: 'long' });
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const now = today.getTime();
+
+  function readTab(name) {
+    const sh = ss.getSheetByName(name);
+    if (!sh) return [];
+    const data = sh.getDataRange().getValues();
+    if (data.length < 2) return [];
+    const headers = data[0].map(String);
+    return data.slice(1).map(function (row) {
+      const obj = {};
+      for (let i = 0; i < headers.length; i++) obj[headers[i]] = row[i];
+      return obj;
+    });
+  }
+
+  const contacts = readTab('Contacts');
+  const companies = readTab('Companies');
+  const deals = readTab('Deals');
+  const tasks = readTab('Tasks');
+  const emailSends = readTab('EmailSends');
+  const leads = readTab('Leads');
+  const bookings = readTab('Bookings');
+
+  // Replies waiting (last 7d)
+  const repliesWaiting = emailSends
+    .filter(function (s) {
+      if (!s.repliedAt) return false;
+      const t = new Date(s.repliedAt).getTime();
+      return !isNaN(t) && (now - t) < 7 * DAY_MS;
+    })
+    .map(function (s) {
+      const c = contacts.find(function (x) { return x.id === s.contactId; });
+      return {
+        sendId: s.id,
+        contactId: s.contactId,
+        contactName: c ? (c.firstName + ' ' + c.lastName) : s.to,
+        subject: s.subject,
+        repliedAt: s.repliedAt,
+        hoursAgo: Math.floor((now - new Date(s.repliedAt).getTime()) / 3600000),
+      };
+    })
+    .sort(function (a, b) { return a.hoursAgo - b.hoursAgo; })
+    .slice(0, 5);
+
+  // Hot leads (score >= 50, unconverted)
+  const scoredLeads = leads
+    .filter(function (l) { return l.status !== 'archived' && l.status !== 'converted'; })
+    .map(function (l) {
+      const score = Number(l.score) || 0;
+      let temperature = 'cold';
+      if (score >= 80) temperature = 'molten';
+      else if (score >= 50) temperature = 'hot';
+      else if (score >= 25) temperature = 'warm';
+      return Object.assign({}, l, { _score: score, _temperature: temperature });
+    });
+  const hotLeads = scoredLeads
+    .filter(function (l) { return l._temperature === 'hot' || l._temperature === 'molten'; })
+    .sort(function (a, b) { return b._score - a._score; })
+    .slice(0, 5)
+    .map(function (l) {
+      return {
+        leadId: l.id,
+        name: (l.firstName + ' ' + l.lastName).trim(),
+        company: l.companyName,
+        title: l.title || l.headline,
+        score: l._score,
+        temperature: l._temperature,
+        lastSignal: l.lastSignalAt,
+      };
+    });
+
+  // Today's bookings
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const todayEnd = todayStart + DAY_MS;
+  const todaysBookings = bookings
+    .filter(function (b) {
+      if (b.status !== 'confirmed') return false;
+      const t = new Date(b.slotStart).getTime();
+      return t >= todayStart && t < todayEnd;
+    })
+    .map(function (b) {
+      return {
+        bookingId: b.id,
+        attendee: b.attendeeName || b.attendeeEmail,
+        slotStart: b.slotStart,
+        notes: (b.attendeeNotes || '').slice(0, 100),
+      };
+    });
+
+  // Stale high-value deals
+  const staleDeals = deals
+    .filter(function (d) { return !String(d.stage || '').startsWith('Closed') && (Number(d.value) || 0) >= 5000; })
+    .map(function (d) {
+      const lastEmail = emailSends
+        .filter(function (s) { return s.contactId === d.contactId && s.sentAt; })
+        .reduce(function (max, s) { return Math.max(max, new Date(s.sentAt).getTime()); }, 0);
+      const lastUpdate = new Date(d.updatedAt || d.createdAt || 0).getTime();
+      const lastActivity = Math.max(lastEmail, lastUpdate);
+      const daysQuiet = Math.floor((now - lastActivity) / DAY_MS);
+      const c = d.contactId ? contacts.find(function (x) { return x.id === d.contactId; }) : null;
+      return {
+        dealId: d.id,
+        title: d.title,
+        stage: d.stage,
+        value: Number(d.value) || 0,
+        contactName: c ? (c.firstName + ' ' + c.lastName) : '',
+        daysQuiet: daysQuiet,
+      };
+    })
+    .filter(function (d) { return d.daysQuiet >= 14; })
+    .sort(function (a, b) { return b.value - a.value; })
+    .slice(0, 5);
+
+  // Pipeline shape
+  const openDeals = deals.filter(function (d) { return !String(d.stage || '').startsWith('Closed'); });
+  const dealsByStage = {};
+  openDeals.forEach(function (d) { dealsByStage[d.stage] = (dealsByStage[d.stage] || 0) + 1; });
+  const pipelineValue = openDeals.reduce(function (s, d) { return s + (Number(d.value) || 0); }, 0);
+  const weightedPipeline = openDeals.reduce(function (s, d) {
+    return s + (Number(d.value) || 0) * ((Number(d.probability) || 0) / 100);
+  }, 0);
+  const activeMRR = deals
+    .filter(function (d) { return d.stage === 'Closed Won' && d.mrrStatus === 'active'; })
+    .reduce(function (s, d) { return s + (Number(d.mrr) || 0); }, 0);
+
+  // Tasks due today
+  const dueTasks = tasks
+    .filter(function (t) {
+      if (t.status === 'completed' || t.status === 'cancelled') return false;
+      if (!t.dueDate) return false;
+      return new Date(t.dueDate).getTime() < todayEnd;
+    })
+    .slice(0, 10)
+    .map(function (t) {
+      return { taskId: t.id, title: t.title, dueDate: t.dueDate, priority: t.priority };
+    });
+
+  return {
+    today: todayIso,
+    dayOfWeek: dayOfWeek,
+    repliesWaiting: repliesWaiting,
+    hotLeads: hotLeads,
+    todaysBookings: todaysBookings,
+    staleDeals: staleDeals,
+    dealsByStage: dealsByStage,
+    pipeline: {
+      openCount: openDeals.length,
+      totalValue: pipelineValue,
+      weightedValue: weightedPipeline,
+      activeMRR: activeMRR,
+    },
+    leadCounts: {
+      total: scoredLeads.length,
+      hot: hotLeads.length,
+    },
+    dueTasks: dueTasks,
+    companyCount: companies.length,
+  };
+}
+
+/** Pretty HTML email with priority cards + links to the live app. */
+function renderDigestHtml_(briefing, digest) {
+  const appUrl = 'https://mattc1987.github.io/hashio-crm';
+  const accent = '#7a5eff';
+  const muted = '#777';
+  const body = '#222';
+
+  const priorityHtml = (briefing.priorities || []).map(function (p, i) {
+    let link = appUrl + '/#/dashboard';
+    if (p.entityType === 'contact' && p.entityId) link = appUrl + '/#/contacts/' + p.entityId;
+    else if (p.entityType === 'deal' && p.entityId) link = appUrl + '/#/deals/' + p.entityId;
+    else if (p.entityType === 'lead') link = appUrl + '/#/leads';
+    else if (p.entityType === 'task') link = appUrl + '/#/tasks';
+    else if (p.entityType === 'booking') link = appUrl + '/#/scheduling';
+    else if (p.entityType === 'find-leads') link = appUrl + '/#/leads';
+
+    const urgencyColor = p.urgency === 'critical' ? '#ef4c4c' : p.urgency === 'high' ? '#f5a524' : accent;
+
+    return '<tr><td style="padding:10px 14px;border-left:3px solid ' + urgencyColor + ';background:#fafafa;border-radius:6px;">' +
+      '<div style="font-size:14px;font-weight:600;color:' + body + ';margin-bottom:4px;">' + (i + 1) + '. ' + escapeHtml_(p.title || '') + '</div>' +
+      '<div style="font-size:13px;color:' + muted + ';line-height:1.4;margin-bottom:6px;">' + escapeHtml_(p.reason || '') + '</div>' +
+      '<a href="' + link + '" style="font-size:12px;color:' + accent + ';text-decoration:none;font-weight:500;">Open in Hashio →</a>' +
+      '</td></tr><tr><td style="height:8px;"></td></tr>';
+  }).join('');
+
+  const pipelineHealth = briefing.pipelineHealth || { status: 'healthy', comment: '' };
+  const healthBg = pipelineHealth.status === 'critical' ? '#fef0f0' :
+                   pipelineHealth.status === 'thin' ? '#fef7e6' : '#f0f9f4';
+  const healthColor = pipelineHealth.status === 'critical' ? '#c0322a' :
+                      pipelineHealth.status === 'thin' ? '#946400' : '#1f7c43';
+
+  const html = [
+    '<!DOCTYPE html>',
+    '<html><body style="margin:0;padding:0;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;">',
+    '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f5f5f7;padding:24px 0;">',
+      '<tr><td align="center">',
+      '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.06);">',
+        '<tr><td style="padding:24px 28px 12px;">',
+          '<div style="font-size:11px;font-weight:600;color:' + accent + ';text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">AI BDR · Daily briefing</div>',
+          '<div style="font-size:20px;font-weight:600;color:' + body + ';margin-bottom:8px;">' + escapeHtml_(briefing.greeting || 'Good morning.') + '</div>',
+          '<div style="font-size:14px;color:' + body + ';line-height:1.55;">' + escapeHtml_(briefing.narrative || '') + '</div>',
+          '<div style="margin-top:14px;padding:10px 14px;background:' + healthBg + ';color:' + healthColor + ';border-radius:8px;font-size:12px;">',
+            '<strong>Pipeline ' + escapeHtml_(pipelineHealth.status) + ':</strong> ' + escapeHtml_(pipelineHealth.comment || ''),
+          '</div>',
+        '</td></tr>',
+        '<tr><td style="padding:8px 28px 8px;">',
+          '<div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.06em;margin:14px 0 10px;">Today\'s priorities</div>',
+          '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">' + priorityHtml + '</table>',
+        '</td></tr>',
+        '<tr><td style="padding:14px 28px 24px;border-top:1px solid #eee;font-size:11px;color:' + muted + ';">',
+          'Sent by your AI BDR · <a href="' + appUrl + '" style="color:' + accent + ';">Open Hashio</a> · ',
+          'Generated at ' + new Date().toLocaleString() + ' · Model: ' + escapeHtml_(briefing.model || 'unknown') +
+        '</td></tr>',
+      '</table>',
+      '</td></tr>',
+    '</table>',
+    '</body></html>',
+  ].join('');
+  return html;
+}
+
+function briefingPlainText_(briefing, digest) {
+  const lines = [];
+  lines.push((briefing.greeting || 'Good morning.'));
+  lines.push('');
+  lines.push(briefing.narrative || '');
+  lines.push('');
+  lines.push('TODAY\'S PRIORITIES:');
+  (briefing.priorities || []).forEach(function (p, i) {
+    lines.push('');
+    lines.push((i + 1) + '. ' + p.title);
+    lines.push('   ' + p.reason);
+  });
+  lines.push('');
+  lines.push('Open Hashio: https://mattc1987.github.io/hashio-crm');
+  return lines.join('\n');
+}
+
+function escapeHtml_(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function installDailyDigestTrigger_(hour, recipient) {
+  const props = PropertiesService.getScriptProperties();
+  if (recipient) props.setProperty(DIGEST_PROP_RECIPIENT, recipient.trim());
+  props.setProperty(DIGEST_PROP_HOUR, String(hour || 8));
+
+  // Remove old triggers for the digest fn
+  const triggers = ScriptApp.getProjectTriggers();
+  let removed = 0;
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === DIGEST_TRIGGER_FN) {
+      ScriptApp.deleteTrigger(triggers[i]);
+      removed += 1;
+    }
+  }
+  ScriptApp.newTrigger(DIGEST_TRIGGER_FN).timeBased().atHour(hour || 8).everyDays(1).create();
+
+  return getDailyDigestStatus_();
+}
+
+function uninstallDailyDigestTrigger_() {
+  const triggers = ScriptApp.getProjectTriggers();
+  let removed = 0;
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === DIGEST_TRIGGER_FN) {
+      ScriptApp.deleteTrigger(triggers[i]);
+      removed += 1;
+    }
+  }
+  return { uninstalled: true, removed: removed };
+}
+
+function getDailyDigestStatus_() {
+  const props = PropertiesService.getScriptProperties();
+  const recipient = props.getProperty(DIGEST_PROP_RECIPIENT) || '';
+  const hour = Number(props.getProperty(DIGEST_PROP_HOUR) || 8);
+  const lastRun = props.getProperty(DIGEST_PROP_LASTRUN) || '';
+  const triggers = ScriptApp.getProjectTriggers();
+  let installed = false;
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === DIGEST_TRIGGER_FN) {
+      installed = true;
+      break;
+    }
+  }
+  return {
+    installed: installed,
+    recipient: recipient,
+    hour: hour,
+    lastRun: lastRun,
+    defaultRecipient: Session.getActiveUser().getEmail() || '',
+  };
 }
 
 

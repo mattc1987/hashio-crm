@@ -2,6 +2,12 @@
 
 What I built while you were stepped away (April 29, 2026).
 
+## Phases shipped
+
+- **Phase 1** — Dashboard AI briefing, Lead generation suite, AI BDR buttons across the platform, Pipeline coverage card.
+- **Phase 2** — AI Lead Enrichment (fill missing fields), AI Strategist proposals (free-form, beyond rules) on Briefing page.
+- **Phase 3** — 8am Daily Digest email (proactive — your AI BDR shows up to work without being asked).
+
 ## TL;DR
 
 The BDR is now a **proactive go-getter, not a reactive helper**. Three big additions:
@@ -117,14 +123,69 @@ Below the Today widget on Dashboard. Shows your current MRR, target, gap, and a 
 
 ---
 
-## Phase 3 ideas (next session candidates)
+## Phase 2 — additional shipped features
 
-- **8am daily digest email** — Apps Script time-trigger sends the briefing to your inbox so you don't even need to open the app.
+### AI Lead Enrichment
+- New `aiEnrichLead` action in Apps Script. Takes a sparse lead, infers missing fields (title, headline, industry, size, LinkedIn search URL, context notes) using whatever the lead has + Claude's domain knowledge.
+- Honest about confidence — never invents specific data (real emails, real LinkedIn URNs); suggests SEARCH URLs and category-level attributes.
+- "AI enrich" button in the LeadDrawer footer. Click → only updates fields that are empty (won't overwrite existing data). Appends enrichment notes with confidence score.
+
+### AI Strategist Proposals (free-form, beyond rules)
+- New `aiStrategistProposals` action: reads the dashboard digest, returns 3-7 ad-hoc proposals the rules engine can't see. Examples: creative plays referencing specific signals, strategic pivots ("deal stalled in Demo for 3 weeks — try a different stakeholder"), cross-sells, hygiene moves, research recommendations.
+- "Run AI strategist" button on `/briefing` (next to Refresh). Click → drafts a section of cards ABOVE the rule-based queue. Each card: Skip + Apply.
+- `applyStrategistProposal` handler routes by `actionKind`:
+  - `send-email` → real Gmail send via `sendBdrEmail`
+  - `create-task` / `research` → `api.task.create`
+  - `log-activity` → `api.activityLog.create`
+  - `create-note` → `api.note.create`
+  - `update-deal` → handoff task with strategist reasoning
+  - `create-deal` → new deal in Lead stage
+  - fallback → task
+
+## Phase 3 — Daily Digest email (proactive)
+
+The single biggest behavioral shift: your AI BDR now **pushes** instead of you pulling.
+
+### What it does
+Apps Script time-trigger fires every morning (default 8am). Reads the Sheet, builds the same digest the on-page briefing uses, calls Claude with the strategist system prompt, sends a polished HTML email to you with:
+- Greeting tied to the day
+- 2-3 sentence narrative read on the day's situation
+- Pipeline-health verdict (healthy / thin / critical)
+- 3-7 priority cards, each with a one-click "Open in Hashio" link to the relevant entity (contact / deal / lead / task / booking / find-leads)
+- Footer with timestamp + model used
+
+### How to enable (one-time setup, ~30 seconds)
+
+1. Open `/settings`
+2. Find the new **"Daily AI digest email"** card (right after the Anthropic config)
+3. Confirm the recipient (defaults to your Gmail)
+4. Pick send hour (defaults to 8am)
+5. Click **"Schedule daily digest"**
+
+That installs the Apps Script time-trigger. From then on, you get an email every morning.
+
+### Test it without waiting for 8am
+Same panel has a **"Send test now"** button — fires the digest immediately so you can preview the email format.
+
+### Files involved
+- `apps-script/Code.gs`: `dailyDigestCron` (the trigger handler), `sendDailyDigest_`, `buildDigestFromSheet_` (server-side digest builder), `renderDigestHtml_` (responsive email HTML), `installDailyDigestTrigger_` / `uninstallDailyDigestTrigger_` / `getDailyDigestStatus_`.
+- `src/components/settings/DailyDigestConfig.tsx`: Settings UI panel (install / disable / test send / edit hour + recipient).
+
+### Notes
+- Email comes FROM your Gmail (whoever owns the Apps Script). Show up in your Sent folder.
+- "Open in Hashio" links use hash routing (`/#/contacts/[id]`) so they work with the GitHub Pages deploy.
+- The script uses Gmail send quota (your daily limit; for a personal Workspace account it's plenty for one email a day).
+
+---
+
+## Future Phase 4 ideas (next session candidates)
+
 - **Multi-step plans** — "for this lead: today email, in 3d call, in 7d LinkedIn." Generate cadences not single moves.
 - **Company-level AI** — drawer that aggregates all contacts + deals + activity for a company, recommends portfolio moves.
-- **AI strategist mode on Briefing** — same drawer pattern but Claude generates *new* proposals beyond what the rules can see (free-form).
 - **Self-tuning rule thresholds** — track your skip rate per rule, auto-loosen rules you always approve, tighten rules you always skip.
 - **Web search for lead enrichment** — wire Anthropic Tools w/ web search to enrich AI-suggested companies with real-world data (recent funding, hiring, news).
+- **Slack integration** — same digest, but as a Slack DM with approve buttons.
+- **Auto-narrative on every existing rule proposal** — Claude rewrites every Briefing-page card's reason in plain English (token-cheap; could cache).
 
 ---
 

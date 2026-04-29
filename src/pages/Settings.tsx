@@ -3,6 +3,7 @@ import { Sun, Moon, Monitor, AlertCircle, CheckCircle2, ExternalLink, Flame, Cop
 import { TwilioConfig } from '../components/settings/TwilioConfig'
 import { AnthropicConfig } from '../components/settings/AnthropicConfig'
 import { TestDataSeeder } from '../components/settings/TestDataSeeder'
+import { DailyDigestConfig } from '../components/settings/DailyDigestConfig'
 import { Card, CardHeader, PageHeader, Badge } from '../components/ui'
 import { getThemePref, setThemePref, type ThemePref } from '../lib/theme'
 import { hasWriteBackend } from '../lib/api'
@@ -113,6 +114,8 @@ export function Settings() {
       </Card>
 
       <AnthropicConfig />
+
+      <DailyDigestConfig />
 
       <TestDataSeeder />
 
