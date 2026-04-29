@@ -11,6 +11,8 @@ import { currency, num, date, totalActiveMRR, activeMRRByCompany, formatPeriod, 
 import type { Deal, Task, ExecUpdate, Company, Cashflow } from '../lib/types'
 import { cn } from '../lib/cn'
 import { TodayWidget } from '../components/dashboard/TodayWidget'
+import { DashboardAIBriefing } from '../components/dashboard/DashboardAIBriefing'
+import { PipelineCoverageCard } from '../components/dashboard/PipelineCoverageCard'
 import { LineChart } from '../components/charts/LineChart'
 import { HealthDot } from '../components/HealthDot'
 import { computeClientHealth } from '../lib/clientHealth'
@@ -63,6 +65,9 @@ export function Dashboard() {
         subtitle="Your Hashio business at a glance."
       />
 
+      {/* AI BDR daily briefing — Claude reads everything + tells Matt what matters today */}
+      <DashboardAIBriefing data={data} />
+
       {/* Today widget */}
       <TodayWidget
         bookings={bookings}
@@ -104,6 +109,9 @@ export function Dashboard() {
 
       {/* MRR trend chart */}
       <MRRTrend execUpdates={execUpdates} cashflow={cashflow} currentMRR={activeMRR} />
+
+      {/* Pipeline coverage — MRR target gap math */}
+      <PipelineCoverageCard deals={deals} />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <PipelineSnapshot deals={deals} />

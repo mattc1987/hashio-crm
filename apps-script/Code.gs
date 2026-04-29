@@ -324,6 +324,24 @@ function handle_(e) {
         break;
       }
 
+      case 'aiDashboardBriefing': {
+        // Dashboard-level strategist: reads a compact CRM digest, returns a
+        // greeting + narrative + 3-7 priority cards Matt can click into.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = aiDashboardBriefing_(payload);
+        break;
+      }
+
+      case 'aiSuggestTargets': {
+        // Lead generation: looks at Matt's existing customers + ICP, proposes
+        // lookalike target accounts (companies + roles).
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = aiSuggestTargets_(payload);
+        break;
+      }
+
       default:
         throw new Error('Unknown action: ' + params.action);
     }
@@ -1188,6 +1206,152 @@ function aiSuggestNextMove_(payload) {
       confidence: 0,
     };
   }
+  parsed.model = model;
+  return parsed;
+}
+
+
+/* ---------- AI Dashboard briefing — daily strategist read ---------- */
+function aiDashboardBriefing_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured. Open Settings to add your API key.');
+
+  const digest = payload.digest || {};
+
+  const systemPrompt =
+    'You are Matt Campbell\'s autonomous BDR at Hashio Inc. (B2B SaaS for cannabis cultivators — compliance, scheduling, ' +
+    'yield, cost-per-pound). Matt is the founder. Your job: read the CRM state every morning and brief Matt on what to focus on today.\n\n' +
+    'You operate like a real BDR: 3 facts before every cold touch, personalize every outreach, multi-channel (email/LinkedIn/phone), ' +
+    'persistence (7-12 touches per deal), discovery questions over feature pitches, BANT/MEDDIC qualifying.\n\n' +
+    'Identify what genuinely needs attention. PRIORITIZE LIKE THIS:\n' +
+    '1. Replies waiting (highest — opportunity-cost bleeds fast)\n' +
+    '2. Hot/molten leads not yet contacted (pipeline-creation)\n' +
+    '3. Today\'s bookings/meetings (preparation)\n' +
+    '4. Stale high-value deals (advancement)\n' +
+    '5. Pipeline-coverage gaps (when total pipeline is thin)\n' +
+    '6. Strategic next moves\n\n' +
+    'If pipeline is thin (e.g. <5 open deals or <2 hot leads), include a "find-leads" priority.\n' +
+    'If everything is calm, suggest something proactive — research an account, draft a piece of content, etc.\n\n' +
+    'Voice: warm, direct, short. Like a BDR sliding into Slack. Sign nothing. No fluff.\n\n' +
+    'STRICT JSON ONLY — no markdown, no preamble. Schema:\n' +
+    '{\n' +
+    '  "greeting": "1-line greeting based on time/day (e.g. \\"Wednesday morning — pipeline\'s healthy.\\")",\n' +
+    '  "narrative": "2-3 sentences: read on the day. What\'s urgent, what\'s opportunity, what\'s not.",\n' +
+    '  "priorities": [\n' +
+    '    {\n' +
+    '      "title": "punchy 5-9 word title",\n' +
+    '      "reason": "1 sentence why this matters today",\n' +
+    '      "urgency": "critical" | "high" | "medium",\n' +
+    '      "entityType": "contact" | "deal" | "lead" | "task" | "booking" | "find-leads" | "none",\n' +
+    '      "entityId": "id from the digest if applicable, else empty string",\n' +
+    '      "actionHint": "send-email" | "respond" | "call" | "research" | "find-leads" | "advance-deal" | "qualify" | "review"\n' +
+    '    }\n' +
+    '  ],\n' +
+    '  "pipelineHealth": {\n' +
+    '    "status": "healthy" | "thin" | "critical",\n' +
+    '    "comment": "1-line explanation"\n' +
+    '  }\n' +
+    '}\n' +
+    'Return 3-6 priorities. Keep it tight.';
+
+  const userMessage = 'CRM DIGEST (today):\n' + JSON.stringify(digest, null, 2) + '\n\nReturn your JSON briefing.';
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'x-api-key': key, 'anthropic-version': ANTHROPIC_API_VERSION_ },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 1500,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  let parsed = {};
+  try { parsed = JSON.parse(cleaned); }
+  catch (e) {
+    parsed = {
+      greeting: 'Good morning.',
+      narrative: text.slice(0, 300),
+      priorities: [],
+      pipelineHealth: { status: 'healthy', comment: '(could not parse Claude response)' },
+    };
+  }
+  parsed.model = model;
+  parsed.generatedAt = new Date().toISOString();
+  return parsed;
+}
+
+
+/* ---------- AI Lead generation — suggest target accounts ---------- */
+function aiSuggestTargets_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured.');
+
+  const existingCustomers = payload.existingCustomers || [];
+  const criteria = payload.criteria || '';
+  const count = Math.min(Math.max(payload.count || 10, 1), 20);
+
+  const systemPrompt =
+    'You are Matt Campbell\'s BDR at Hashio Inc. — B2B SaaS for cannabis cultivators (compliance, scheduling, yield, cost-per-pound).\n' +
+    'Your task: propose ' + count + ' target accounts that would be a strong ICP fit. Look at Matt\'s existing customers ' +
+    '(if provided) for lookalike modeling. Use real US/Canadian cannabis cultivation companies and named industry figures.\n\n' +
+    'Important grounding:\n' +
+    '- Hashio sells to LICENSED cultivators (Tier 1-3 indoor or outdoor, MED/REC/MMJ).\n' +
+    '- Best fits: 50k+ sqft canopy, 3+ harvest cycles tracked, multi-strain operations, expanding to multi-state.\n' +
+    '- Roles to target: Founder, Director of Cultivation, Head Grower, COO, Operations Manager, Compliance Manager.\n' +
+    '- Avoid: brokers, dispensaries-only, edibles-only, hemp/CBD-only (different ICP).\n\n' +
+    'For each proposed account, infer realistic attributes (company size, state, license type, why-fit). ' +
+    'Be HONEST about confidence — if you\'re not sure a company exists, mark confidence lower.\n\n' +
+    'Return STRICT JSON only (no markdown):\n' +
+    '{\n' +
+    '  "targets": [\n' +
+    '    {\n' +
+    '      "companyName": "string",\n' +
+    '      "state": "2-letter state code, or empty",\n' +
+    '      "size": "Small | Medium | Large",\n' +
+    '      "licenseType": "MED | REC | MMJ | Multi | Unknown",\n' +
+    '      "targetRoles": ["Founder", "Head Grower"],\n' +
+    '      "whyFit": "1-2 sentence reasoning citing specific lookalike",\n' +
+    '      "confidence": 0-100,\n' +
+    '      "linkedinHint": "LinkedIn search URL or company URL guess if known, else empty"\n' +
+    '    }\n' +
+    '  ],\n' +
+    '  "researchSteps": ["1-2 short suggestions for next research steps Matt should take"]\n' +
+    '}';
+
+  const userMessage = 'EXISTING CUSTOMERS (lookalike basis):\n' + JSON.stringify(existingCustomers, null, 2) + '\n\n' +
+    (criteria ? 'EXTRA CRITERIA FROM MATT: ' + criteria + '\n\n' : '') +
+    'Propose ' + count + ' target accounts.';
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'x-api-key': key, 'anthropic-version': ANTHROPIC_API_VERSION_ },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 3000,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  let parsed = { targets: [], researchSteps: [] };
+  try { parsed = JSON.parse(cleaned); }
+  catch (e) { /* return empty */ }
   parsed.model = model;
   return parsed;
 }

@@ -7,6 +7,7 @@
 //   suggestNextMove(entity, ctx)        → AI-strategist next-move plan
 
 import type { Contact, Deal, Lead, Proposal, SheetData, Task } from './types'
+import { scoreLead } from './leadScoring'
 
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || ''
 const APPS_SCRIPT_KEY = import.meta.env.VITE_APPS_SCRIPT_KEY || ''
@@ -341,6 +342,220 @@ function recentActivityFor(contactId: string, data: SheetData): string[] {
     .sort((a, b) => (b.ts || '').localeCompare(a.ts || ''))
     .slice(0, 10)
     .map((x) => x.line)
+}
+
+// ============================================================
+// AI Dashboard Briefing — daily strategist read
+// ============================================================
+
+export interface DashboardPriority {
+  title: string
+  reason: string
+  urgency: 'critical' | 'high' | 'medium'
+  entityType: 'contact' | 'deal' | 'lead' | 'task' | 'booking' | 'find-leads' | 'none'
+  entityId: string
+  actionHint: 'send-email' | 'respond' | 'call' | 'research' | 'find-leads' | 'advance-deal' | 'qualify' | 'review'
+}
+
+export interface DashboardBriefing {
+  greeting: string
+  narrative: string
+  priorities: DashboardPriority[]
+  pipelineHealth: { status: 'healthy' | 'thin' | 'critical'; comment: string }
+  model: string
+  generatedAt: string
+}
+
+export async function dashboardBriefing(data: SheetData): Promise<DashboardBriefing> {
+  const digest = buildDashboardDigest(data)
+  return call<DashboardBriefing>('aiDashboardBriefing', { digest })
+}
+
+/** Compact CRM digest for Claude — only what's needed for daily prioritization. */
+function buildDashboardDigest(data: SheetData): Record<string, unknown> {
+  const now = Date.now()
+  const DAY = 24 * 60 * 60 * 1000
+
+  // Replies waiting (highest priority)
+  const repliesWaiting = data.emailSends
+    .filter((s) => s.repliedAt && (now - new Date(s.repliedAt).getTime()) < 7 * DAY)
+    .map((s) => {
+      const c = data.contacts.find((x) => x.id === s.contactId)
+      return {
+        sendId: s.id,
+        contactId: s.contactId,
+        contactName: c ? `${c.firstName} ${c.lastName}` : s.to,
+        company: c?.companyId ? data.companies.find((co) => co.id === c.companyId)?.name : '',
+        subject: s.subject,
+        repliedAt: s.repliedAt,
+        hoursAgo: Math.floor((now - new Date(s.repliedAt).getTime()) / 3600_000),
+      }
+    })
+    .sort((a, b) => a.hoursAgo - b.hoursAgo)
+    .slice(0, 5)
+
+  // Hot leads (>= warm, unconverted)
+  const hotLeads = data.leads
+    .filter((l) => l.status !== 'archived' && l.status !== 'converted')
+    .map((l) => ({ ...l, _score: scoreLeadCompat(l) }))
+    .filter((l) => l._score.temperature === 'hot' || l._score.temperature === 'molten')
+    .sort((a, b) => b._score.score - a._score.score)
+    .slice(0, 5)
+    .map((l) => ({
+      leadId: l.id,
+      name: `${l.firstName} ${l.lastName}`,
+      company: l.companyName,
+      title: l.title || l.headline,
+      score: l._score.score,
+      temperature: l._score.temperature,
+      lastSignal: l.lastSignalAt,
+    }))
+
+  // Today's bookings
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const todayEnd = todayStart.getTime() + DAY
+  const todaysBookings = data.bookings
+    .filter((b) => {
+      if (b.status !== 'confirmed') return false
+      const t = new Date(b.slotStart).getTime()
+      return t >= todayStart.getTime() && t < todayEnd
+    })
+    .map((b) => ({
+      bookingId: b.id,
+      attendee: b.attendeeName || b.attendeeEmail,
+      slotStart: b.slotStart,
+      notes: (b.attendeeNotes || '').slice(0, 100),
+    }))
+
+  // Stale high-value deals
+  const staleDeals = data.deals
+    .filter((d) => !d.stage.startsWith('Closed') && d.value >= 5000)
+    .map((d) => {
+      // Compute last activity
+      const lastEmail = data.emailSends
+        .filter((s) => s.contactId === d.contactId && s.sentAt)
+        .map((s) => new Date(s.sentAt).getTime())
+        .reduce((max, t) => Math.max(max, t), 0)
+      const lastLog = data.activityLogs
+        .filter((l) => l.entityType === 'deal' && l.entityId === d.id && l.occurredAt)
+        .map((l) => new Date(l.occurredAt).getTime())
+        .reduce((max, t) => Math.max(max, t), 0)
+      const lastActivity = Math.max(lastEmail, lastLog, new Date(d.updatedAt || d.createdAt || 0).getTime())
+      const daysQuiet = Math.floor((now - lastActivity) / DAY)
+      const c = d.contactId ? data.contacts.find((x) => x.id === d.contactId) : null
+      return {
+        dealId: d.id,
+        title: d.title,
+        stage: d.stage,
+        value: d.value,
+        contactName: c ? `${c.firstName} ${c.lastName}` : '',
+        daysQuiet,
+      }
+    })
+    .filter((d) => d.daysQuiet >= 14)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5)
+
+  // Open deal counts by stage
+  const openDeals = data.deals.filter((d) => !d.stage.startsWith('Closed'))
+  const dealsByStage = openDeals.reduce((acc, d) => {
+    acc[d.stage] = (acc[d.stage] || 0) + 1
+    return acc
+  }, {} as Record<string, number>)
+
+  // Active MRR + pipeline value
+  const activeMRR = data.deals
+    .filter((d) => d.stage === 'Closed Won' && d.mrrStatus === 'active')
+    .reduce((s, d) => s + (d.mrr || 0), 0)
+  const pipelineValue = openDeals.reduce((s, d) => s + (d.value || 0), 0)
+  const weightedPipeline = openDeals.reduce((s, d) => s + (d.value || 0) * ((d.probability || 0) / 100), 0)
+
+  // Tasks due
+  const dueTasks = data.tasks
+    .filter((t) => {
+      if (t.status === 'completed' || t.status === 'cancelled') return false
+      if (!t.dueDate) return false
+      return new Date(t.dueDate).getTime() < todayEnd
+    })
+    .slice(0, 10)
+    .map((t) => ({
+      taskId: t.id,
+      title: t.title,
+      dueDate: t.dueDate,
+      priority: t.priority,
+    }))
+
+  return {
+    today: new Date().toISOString().slice(0, 10),
+    dayOfWeek: new Date().toLocaleDateString('en-US', { weekday: 'long' }),
+    repliesWaiting,
+    hotLeads,
+    todaysBookings,
+    staleDeals,
+    dealsByStage,
+    pipeline: {
+      openCount: openDeals.length,
+      totalValue: pipelineValue,
+      weightedValue: weightedPipeline,
+      activeMRR,
+    },
+    leadCounts: {
+      total: data.leads.filter((l) => l.status !== 'archived' && l.status !== 'converted').length,
+      hot: hotLeads.length,
+    },
+    dueTasks,
+  }
+}
+
+// Local re-export of scoreLead so consumers don't need to import leadScoring directly
+function scoreLeadCompat(lead: Lead) {
+  return scoreLead(lead, new Date())
+}
+
+// ============================================================
+// AI Lead generation — suggest target accounts
+// ============================================================
+
+export interface SuggestedTarget {
+  companyName: string
+  state: string
+  size: string
+  licenseType: string
+  targetRoles: string[]
+  whyFit: string
+  confidence: number
+  linkedinHint: string
+}
+
+export interface SuggestTargetsResult {
+  targets: SuggestedTarget[]
+  researchSteps: string[]
+  model: string
+}
+
+export async function suggestTargets(
+  data: SheetData,
+  options: { criteria?: string; count?: number } = {},
+): Promise<SuggestTargetsResult> {
+  // Build a compact summary of existing customers (Closed Won)
+  const wonDeals = data.deals.filter((d) => d.stage === 'Closed Won')
+  const existingCustomers = wonDeals.map((d) => {
+    const co = d.companyId ? data.companies.find((x) => x.id === d.companyId) : null
+    return {
+      companyName: co?.name || d.title,
+      industry: co?.industry || '',
+      size: co?.size || '',
+      licenseCount: co?.licenseCount || '',
+      mrr: d.mrr,
+    }
+  }).slice(0, 20)
+
+  return call<SuggestTargetsResult>('aiSuggestTargets', {
+    existingCustomers,
+    criteria: options.criteria || '',
+    count: options.count || 10,
+  })
 }
 
 /** Build the active booking-link list with REAL public URLs so Claude can

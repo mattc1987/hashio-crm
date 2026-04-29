@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import {
   Search, Flame, Snowflake, Coffee, Mountain,
   Users as UsersIcon, Building2, Link2, ExternalLink, ChevronRight,
-  ArrowDownUp, ArrowDown, ArrowUp, Zap, UserPlus, Archive, X,
+  ArrowDownUp, ArrowDown, ArrowUp, Zap, UserPlus, Archive, X, Sparkles, Plus,
 } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import {
@@ -12,9 +12,11 @@ import {
   parseSignals, temperatureColor, temperatureEmoji, temperatureLabel, scoreLead,
 } from '../lib/leadScoring'
 import { relativeDate } from '../lib/format'
-import { api } from '../lib/api'
+import { api, hasWriteBackend } from '../lib/api'
 import type { Lead, LeadStatus, LeadTemperature } from '../lib/types'
 import { cn } from '../lib/cn'
+import { AIBdrDrawer } from '../components/AIBdrDrawer'
+import { LeadGenerationDrawer } from '../components/dashboard/LeadGenerationDrawer'
 
 type LeadView = 'contacts' | 'companies'
 type SortKey = 'score' | 'lastSignal' | 'created' | 'name'
@@ -31,6 +33,8 @@ export function Leads() {
   const [sortKey, setSortKey] = useState<SortKey>('score')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [selected, setSelected] = useState<Lead | null>(null)
+  const [aiLead, setAiLead] = useState<Lead | null>(null)
+  const [findLeadsOpen, setFindLeadsOpen] = useState(false)
 
   const data = 'data' in state ? state.data : undefined
   const leads = data?.leads ?? []
@@ -123,9 +127,20 @@ export function Leads() {
         title="Leads"
         subtitle="Prospects from LinkedIn / Teamfluence / webhook sources, ranked by engagement temperature."
         action={
-          <Button variant="primary" onClick={() => alert('Webhook URL is in Settings → Lead ingest webhook.\n\nWire it into Teamfluence (or Zapier) to start populating this tab.')}>
-            How to feed leads
-          </Button>
+          <div className="flex items-center gap-2">
+            {hasWriteBackend() && (
+              <Button
+                variant="primary"
+                icon={<Plus size={13} />}
+                onClick={() => setFindLeadsOpen(true)}
+              >
+                Find more leads
+              </Button>
+            )}
+            <Button variant="secondary" onClick={() => alert('Webhook URL is in Settings → Lead ingest webhook.\n\nWire it into Teamfluence (or Zapier) to start populating this tab.')}>
+              How to feed leads
+            </Button>
+          </div>
         }
       />
 
@@ -215,6 +230,7 @@ export function Leads() {
           <ContactView
             leads={filtered}
             onSelect={setSelected}
+            onAi={hasWriteBackend() ? setAiLead : undefined}
             sortKey={sortKey}
             sortDir={sortDir}
             toggleSort={toggleSort}
@@ -233,6 +249,23 @@ export function Leads() {
           onSaved={() => { refresh() }}
         />
       )}
+
+      {/* AI BDR drawer */}
+      <AIBdrDrawer
+        open={!!aiLead}
+        onClose={() => setAiLead(null)}
+        entity={aiLead ? { kind: 'lead', lead: aiLead } : null}
+        data={data}
+        goal="What's the single best next move on this lead? Look at their engagement signals + temperature. Recommend qualification, conversion to contact+deal, outreach, or pause based on what's most actionable."
+        onApplied={() => { setAiLead(null); refresh() }}
+      />
+
+      {/* Find more leads drawer */}
+      <LeadGenerationDrawer
+        open={findLeadsOpen}
+        onClose={() => setFindLeadsOpen(false)}
+        data={data}
+      />
     </div>
   )
 }
@@ -265,10 +298,11 @@ function FilterChip({
 }
 
 function ContactView({
-  leads, onSelect, sortKey, sortDir, toggleSort,
+  leads, onSelect, onAi, sortKey, sortDir, toggleSort,
 }: {
   leads: Array<Lead & { score: number; temperature: LeadTemperature }>
   onSelect: (lead: Lead) => void
+  onAi?: (lead: Lead) => void
   sortKey: SortKey
   sortDir: 'asc' | 'desc'
   toggleSort: (k: SortKey) => void
@@ -325,7 +359,18 @@ function ContactView({
                   {l.lastSignalAt ? relativeDate(l.lastSignalAt) : '—'}
                 </td>
                 <td className="px-4 py-3">
-                  <ChevronRight size={14} className="text-[var(--text-faint)] group-hover:text-body transition-colors" />
+                  <div className="flex items-center gap-1.5 justify-end">
+                    {onAi && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onAi(l) }}
+                        className="inline-flex items-center gap-1 h-6 px-2 text-[10px] font-medium rounded-full bg-[color:rgba(122,94,255,0.12)] text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)] hover:bg-[color:rgba(122,94,255,0.2)] transition-colors"
+                        title="Ask AI BDR for the next move"
+                      >
+                        <Sparkles size={10} /> AI
+                      </button>
+                    )}
+                    <ChevronRight size={14} className="text-[var(--text-faint)] group-hover:text-body transition-colors" />
+                  </div>
                 </td>
               </tr>
             )

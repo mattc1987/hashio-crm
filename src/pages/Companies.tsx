@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Search, Building2, ChevronRight, ExternalLink } from 'lucide-react'
+import { Plus, Search, Building2, ChevronRight, ExternalLink, Sparkles } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, Button, Input, PageHeader, Empty, Avatar, Badge } from '../components/ui'
 import { currency, activeMRRByCompany, billingCycleLabel, isActiveMRR } from '../lib/format'
@@ -8,12 +8,15 @@ import type { Company, Deal } from '../lib/types'
 import { CompanyEditor } from '../components/editors/CompanyEditor'
 import { computeClientHealth, type ClientHealth } from '../lib/clientHealth'
 import { HealthDot } from '../components/HealthDot'
+import { hasWriteBackend } from '../lib/api'
+import { LeadGenerationDrawer } from '../components/dashboard/LeadGenerationDrawer'
 
 export function Companies() {
   const { state, refresh } = useSheetData()
   const [query, setQuery] = useState('')
   const [activeOnly, setActiveOnly] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [findLeadsOpen, setFindLeadsOpen] = useState(false)
 
   const data = 'data' in state ? state.data : undefined
   const companies = data?.companies ?? []
@@ -74,9 +77,20 @@ export function Companies() {
         title="Companies"
         subtitle={`${companies.length} companies · ${currency(totalMRR)}/mo total MRR`}
         action={
-          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
-            New company
-          </Button>
+          <div className="flex items-center gap-2">
+            {hasWriteBackend() && (
+              <Button
+                variant="secondary"
+                icon={<Sparkles size={13} />}
+                onClick={() => setFindLeadsOpen(true)}
+              >
+                Find leads
+              </Button>
+            )}
+            <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
+              New company
+            </Button>
+          </div>
         }
       />
 
@@ -131,6 +145,14 @@ export function Companies() {
         onClose={() => setCreating(false)}
         onSaved={() => refresh()}
       />
+
+      {data && (
+        <LeadGenerationDrawer
+          open={findLeadsOpen}
+          onClose={() => setFindLeadsOpen(false)}
+          data={data}
+        />
+      )}
     </div>
   )
 }
