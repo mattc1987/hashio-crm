@@ -60,6 +60,48 @@ export async function executeProposal(
       }
 
       case 'update-contact': {
+        // Special bundle: R-005 lead → contact + deal conversion
+        if (payload.bundle === 'lead-conversion') {
+          const snap = (payload.leadSnapshot as Record<string, string>) || {}
+          // 1. Create contact
+          const cRes = await api.contact.create({
+            firstName: snap.firstName || '',
+            lastName: snap.lastName || '',
+            email: snap.email || '',
+            phone: '',
+            title: snap.title || '',
+            companyId: '',
+            status: 'new',
+            state: snap.location || '',
+            linkedinUrl: snap.linkedinUrl || '',
+            tags: 'bdr-converted',
+            createdAt: new Date().toISOString(),
+          })
+          if (!cRes.ok || !cRes.row) return { ok: false, error: cRes.error || 'Contact create failed' }
+          const newContactId = cRes.row.id as string
+
+          // 2. Create deal
+          const dRes = await api.deal.create({
+            title: `${snap.firstName} ${snap.lastName} — ${snap.companyName || 'opportunity'}`,
+            contactId: newContactId,
+            companyId: '',
+            value: 0,
+            stage: 'Lead',
+            probability: 10,
+            notes: `Auto-converted from lead by R-005. ${p.reason}`,
+            createdAt: new Date().toISOString(),
+          })
+          if (!dRes.ok) return { ok: false, error: dRes.error || 'Deal create failed' }
+
+          // 3. Mark lead as converted
+          if (payload.leadId) {
+            await api.lead.update({ id: payload.leadId as string, status: 'converted', convertedContactId: newContactId })
+          }
+
+          return { ok: true, output: `Lead converted: contact ${newContactId} + deal in Lead stage.` }
+        }
+
+        // Default update-contact path
         const contactId = (payload.contactId as string) || (p.contactIds || '').split(',')[0]
         if (!contactId) return { ok: false, error: 'No contactId on update-contact proposal' }
         const patch = (payload.patch as Record<string, unknown>) || {}

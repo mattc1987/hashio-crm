@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, Building2, Briefcase, Phone, Pencil, ExternalLink,
+  ArrowLeft, Building2, Briefcase, Phone, Pencil, ExternalLink, Sparkles,
 } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, CardHeader, Avatar, Badge, PageHeader, Empty, Button } from '../components/ui'
@@ -9,6 +9,8 @@ import { ActivityFeed } from '../components/ActivityFeed'
 import { NotesSection } from '../components/NotesSection'
 import { DealEditor } from '../components/editors/DealEditor'
 import { LogActivityDrawer } from '../components/editors/LogActivityDrawer'
+import { AIBdrDrawer } from '../components/AIBdrDrawer'
+import { hasWriteBackend } from '../lib/api'
 import { date, currency, monthlyMRR, billingCycleLabel } from '../lib/format'
 
 const STAGE_COLORS: Record<string, 'neutral' | 'info' | 'warning' | 'success' | 'danger'> = {
@@ -26,6 +28,7 @@ export function DealDetail() {
   const { state, refresh } = useSheetData()
   const [editing, setEditing] = useState(false)
   const [logging, setLogging] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
 
   const data = 'data' in state ? state.data : undefined
   if (!data) return <PageHeader title="Deal" />
@@ -86,8 +89,17 @@ export function DealDetail() {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
+          {hasWriteBackend() && (
+            <Button
+              variant="primary"
+              icon={<Sparkles size={13} />}
+              onClick={() => setAiOpen(true)}
+            >
+              AI BDR
+            </Button>
+          )}
           <Button icon={<Phone size={13} />} onClick={() => setLogging(true)}>Log activity</Button>
-          <Button variant="primary" icon={<Pencil size={13} />} onClick={() => setEditing(true)}>Edit</Button>
+          <Button icon={<Pencil size={13} />} onClick={() => setEditing(true)}>Edit</Button>
         </div>
       </div>
 
@@ -158,6 +170,18 @@ export function DealDetail() {
         entityLabel={deal.title}
         onClose={() => setLogging(false)}
         onSaved={() => refresh()}
+      />
+      <AIBdrDrawer
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        entity={{ kind: 'deal', deal }}
+        data={data}
+        goal={
+          deal.stage.startsWith('Closed')
+            ? 'This deal is closed. Recommend post-sale next moves: expansion, referrals, case study request, or pause.'
+            : `This deal is in "${deal.stage}". Recommend the single best move to advance it. Reference recent activity, last touch, and the contact's engagement.`
+        }
+        onApplied={() => { setAiOpen(false); refresh() }}
       />
     </div>
   )

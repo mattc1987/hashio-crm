@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Mail, Phone, MapPin, Building2, Link2, Pencil,
-  Briefcase, Zap,
+  Briefcase, Zap, Sparkles,
 } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, CardHeader, Avatar, Badge, PageHeader, Empty, Button } from '../components/ui'
@@ -10,7 +10,8 @@ import { ActivityFeed } from '../components/ActivityFeed'
 import { NotesSection } from '../components/NotesSection'
 import { ContactEditor } from '../components/editors/ContactEditor'
 import { LogActivityDrawer } from '../components/editors/LogActivityDrawer'
-import { api } from '../lib/api'
+import { AIBdrDrawer } from '../components/AIBdrDrawer'
+import { api, hasWriteBackend } from '../lib/api'
 import { date, currency, monthlyMRR } from '../lib/format'
 import type { Sequence } from '../lib/types'
 import { cn } from '../lib/cn'
@@ -23,6 +24,7 @@ export function ContactDetail() {
   const [editing, setEditing] = useState(false)
   const [logging, setLogging] = useState(false)
   const [enrollOpen, setEnrollOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
 
   const data = 'data' in state ? state.data : undefined
   if (!data) return <PageHeader title="Contact" />
@@ -130,6 +132,15 @@ export function ContactDetail() {
           </div>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
+          {hasWriteBackend() && (
+            <Button
+              variant="primary"
+              icon={<Sparkles size={13} />}
+              onClick={() => setAiOpen(true)}
+            >
+              AI BDR
+            </Button>
+          )}
           <Button icon={<Phone size={13} />} onClick={() => setLogging(true)}>Log activity</Button>
           <div className="relative">
             <Button
@@ -248,6 +259,14 @@ export function ContactDetail() {
         entityLabel={fullName}
         onClose={() => setLogging(false)}
         onSaved={() => refresh()}
+      />
+      <AIBdrDrawer
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        entity={{ kind: 'contact', contact }}
+        data={data}
+        goal="What's the single best next move with this contact? Look at their engagement history, any open deals, and recent touches. Recommend one concrete action and draft any message that's needed."
+        onApplied={() => { setAiOpen(false); refresh() }}
       />
     </div>
   )

@@ -314,6 +314,16 @@ function handle_(e) {
         break;
       }
 
+      case 'aiSuggestNextMove': {
+        // Generic AI-BDR endpoint. Pre-built CRM context comes from the client
+        // (so we don't have to walk the full Sheet here) — we just forward
+        // it to Claude with the BDR-strategist prompt.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = aiSuggestNextMove_(payload);
+        break;
+      }
+
       default:
         throw new Error('Unknown action: ' + params.action);
     }
@@ -1064,6 +1074,97 @@ function narrativeReason_(payload) {
   const json = JSON.parse(res.getContentText());
   const text = (json.content && json.content[0] && json.content[0].text) || '';
   return { narrative: text.trim() };
+}
+
+
+/* ---------- AI BDR strategist — suggests next moves ---------- */
+/* Generic endpoint the UI calls from any entity (task, contact, deal, lead).
+ * Client builds the context (it has all the joined data already), we just
+ * forward to Claude with a strategist prompt and a strict output schema.
+ * Returns one or more concrete next-move actions Matt can approve.
+ */
+function aiSuggestNextMove_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured. Open Settings to add your API key.');
+
+  const entityType = payload.entityType || 'unknown';
+  const context    = payload.context    || {};
+  const goal       = payload.goal       || '';
+
+  const systemPrompt =
+    'You are Matt Campbell\'s autonomous BDR (business development rep) at Hashio Inc. — a B2B SaaS that helps ' +
+    'licensed agricultural producers (specifically cannabis cultivators) run operations: compliance, scheduling, ' +
+    'yield, cost-per-pound. Matt is the founder. You drive the sales motion: prospecting, qualifying, scheduling ' +
+    'demos, follow-ups. Matt only approves your daily plays.\n\n' +
+    'Real BDR best practices you operate by:\n' +
+    '- The "3 by 3" — reference 3 specific facts about the prospect/company before every cold touch.\n' +
+    '- Personalization > volume. Always reference recent engagement signals (post they liked, link they clicked, role).\n' +
+    '- Multi-channel orchestration: email + LinkedIn + phone. Adapt the channel to what\'s worked before.\n' +
+    '- Average deal needs 7-12 touches. Don\'t give up early. Don\'t spam either.\n' +
+    '- Discovery questions over feature pitches. Lead with their pain.\n' +
+    '- After 8+ touches with zero engagement, recommend pausing and trying again in 90 days.\n\n' +
+    'Voice: warm, direct, low-key. Short paragraphs. Never "synergy", "leverage", "circle back". Sign emails "— Matt".\n' +
+    'SMS under 320 chars. Email subject under 60 chars. Email body 2-4 short paragraphs.\n\n' +
+    'YOU MUST RETURN STRICT JSON — no markdown, no preamble, no code fences. Schema:\n' +
+    '{\n' +
+    '  "narrative": "1-2 sentence read on the situation in plain English",\n' +
+    '  "recommendedAction": "send-email" | "send-sms" | "create-task" | "log-activity" | "update-deal" | "create-deal" | "convert-lead" | "wait" | "pause",\n' +
+    '  "reasoning": "Why this action, citing specific data points (1-2 sentences)",\n' +
+    '  "draftedSubject": "subject if email, otherwise empty string",\n' +
+    '  "draftedBody": "message body if email/sms, otherwise empty string",\n' +
+    '  "taskTitle": "if recommendedAction is create-task, the task title",\n' +
+    '  "taskNotes": "if create-task, what to do specifically",\n' +
+    '  "alternativeActions": ["1-2 short strings describing other options Matt could take instead"],\n' +
+    '  "confidence": 0-100\n' +
+    '}\n';
+
+  const userMessage = 'GOAL: ' + (goal || 'Suggest the single best next move.') + '\n\n' +
+    'ENTITY TYPE: ' + entityType + '\n\n' +
+    'CONTEXT (JSON):\n' + JSON.stringify(context, null, 2) + '\n\n' +
+    'Return your JSON.';
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': ANTHROPIC_API_VERSION_,
+    },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 1200,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) {
+    throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  }
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  let parsed = {};
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (e) {
+    parsed = {
+      narrative: text.slice(0, 200),
+      recommendedAction: 'create-task',
+      reasoning: '(could not parse JSON — raw text returned)',
+      draftedSubject: '',
+      draftedBody: '',
+      taskTitle: '',
+      taskNotes: text,
+      alternativeActions: [],
+      confidence: 0,
+    };
+  }
+  parsed.model = model;
+  return parsed;
 }
 
 

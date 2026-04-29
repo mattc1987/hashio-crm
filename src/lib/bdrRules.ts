@@ -168,6 +168,61 @@ function ruleStaleRelationshipRevival(ctx: RuleContext): ProposalDraft[] {
 }
 
 /**
+ * R-005: Lead → Contact + Deal conversion bundle.
+ *
+ * Fires when a Lead has temperature ≥ warm AND has an email AND is unconverted.
+ * Proposes a single bundled action: convert to Contact + create Deal in Lead
+ * stage. Lower priority than direct outreach but ensures every warm lead
+ * lands in the pipeline so it doesn't get lost.
+ */
+function ruleLeadToDealConversion(ctx: RuleContext): ProposalDraft[] {
+  const { data, now } = ctx
+  const drafts: ProposalDraft[] = []
+  for (const lead of data.leads) {
+    if (lead.status === 'archived' || lead.status === 'converted') continue
+    if (lead.convertedContactId) continue
+    if (!lead.email) continue
+    const score = scoreLead(lead, now)
+    if (score.temperature !== 'warm' && score.temperature !== 'hot' && score.temperature !== 'molten') continue
+
+    // Skip if a contact with same email already exists (avoid double-convert).
+    const existing = data.contacts.find(
+      (c) => c.email && c.email.toLowerCase() === lead.email.toLowerCase(),
+    )
+    if (existing) continue
+
+    drafts.push({
+      ruleId: 'R-005',
+      category: 'outreach',
+      priority: score.temperature === 'molten' ? 'high' : 'medium',
+      confidence: 80,
+      risk: 'safe', // doesn't send anything externally
+      title: `Convert ${lead.firstName} ${lead.lastName} → contact + deal`,
+      reason:
+        `${score.temperature.toUpperCase()} lead at ${lead.companyName || 'unknown company'} ` +
+        `(score ${score.score}). Land them in the pipeline so they don't get lost.`,
+      expectedOutcome: 'Creates a Contact + a Deal in Lead stage. Sequence enrollment is a separate proposal (R-001).',
+      actionKind: 'update-contact', // we'll handle the bundle in the executor
+      action: {
+        bundle: 'lead-conversion',
+        leadId: lead.id,
+        leadSnapshot: {
+          firstName: lead.firstName,
+          lastName: lead.lastName,
+          email: lead.email,
+          title: lead.title || lead.headline,
+          linkedinUrl: lead.linkedinUrl,
+          companyName: lead.companyName,
+          location: lead.location,
+        },
+      },
+      dedupeKey: `R-005:lead:${lead.id}`,
+    })
+  }
+  return drafts.slice(0, 5)
+}
+
+/**
  * R-004: Customer expansion — closed-won customers without a follow-on
  * upsell deal in pipeline. Propose creating a "renewal/expansion" task.
  */
@@ -777,6 +832,7 @@ registerRule({ id: 'R-001', description: 'Hot lead → enroll in default sequenc
 registerRule({ id: 'R-002', description: 'New-lead-of-the-day → LinkedIn connect', category: 'outreach', fn: ruleNewLeadOfTheDay })
 registerRule({ id: 'R-003', description: 'Stale relationship revival', category: 'outreach', fn: ruleStaleRelationshipRevival })
 registerRule({ id: 'R-004', description: 'Customer expansion task', category: 'outreach', fn: ruleCustomerExpansion })
+registerRule({ id: 'R-005', description: 'Lead → contact + deal conversion bundle', category: 'outreach', fn: ruleLeadToDealConversion })
 
 registerRule({ id: 'R-101', description: 'Email opener follow-up', category: 'follow-up', fn: ruleEmailOpenerFollowUp })
 registerRule({ id: 'R-102', description: 'Click follow-up', category: 'follow-up', fn: ruleClickFollowUp })

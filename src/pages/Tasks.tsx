@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, Search, CheckSquare } from 'lucide-react'
+import { Plus, Search, CheckSquare, Sparkles } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, Button, Input, PageHeader, Empty, Badge } from '../components/ui'
 import { date } from '../lib/format'
@@ -7,6 +7,8 @@ import { cn } from '../lib/cn'
 import type { Task } from '../lib/types'
 import { api } from '../lib/api'
 import { TaskEditor } from '../components/editors/TaskEditor'
+import { AIBdrDrawer } from '../components/AIBdrDrawer'
+import { hasWriteBackend } from '../lib/api'
 
 export function Tasks() {
   const { state, refresh } = useSheetData()
@@ -15,6 +17,7 @@ export function Tasks() {
   const [locallyDone, setLocallyDone] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<Task | null>(null)
   const [creating, setCreating] = useState(false)
+  const [aiTask, setAiTask] = useState<Task | null>(null)
 
   const data = 'data' in state ? state.data : undefined
   const tasks = data?.tasks ?? []
@@ -154,6 +157,15 @@ export function Tasks() {
                       {t.contactId && <> · {contactName(t.contactId)}</>}
                     </div>
                   </button>
+                  {hasWriteBackend() && !done && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setAiTask(t) }}
+                      className="shrink-0 inline-flex items-center gap-1 h-7 px-2.5 text-[11px] font-medium rounded-full bg-[color:rgba(122,94,255,0.12)] text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)] hover:bg-[color:rgba(122,94,255,0.2)] transition-colors"
+                      title="Ask AI BDR for the next move"
+                    >
+                      <Sparkles size={11} /> AI BDR
+                    </button>
+                  )}
                 </div>
               )
             })}
@@ -168,6 +180,15 @@ export function Tasks() {
         deals={deals}
         onClose={() => { setCreating(false); setEditing(null) }}
         onSaved={() => refresh()}
+      />
+
+      <AIBdrDrawer
+        open={!!aiTask}
+        onClose={() => setAiTask(null)}
+        entity={aiTask ? { kind: 'task', task: aiTask } : null}
+        data={data}
+        goal="Look at this task in context. What's the single best next move? Consider whether the task is still relevant, whether to email/call/wait, and draft any message you'd send."
+        onApplied={() => { setAiTask(null); refresh() }}
       />
     </div>
   )

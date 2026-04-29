@@ -1,11 +1,12 @@
 // LLM helpers for the BDR — calls the Apps Script proxy which holds the
 // Anthropic API key server-side. The browser never sees the key.
 //
-// Two operations:
-//   draftMessage(proposal, data) → { subject?, body }
-//   narrativeReason(proposal, data) → { narrative }
+// Operations:
+//   draftMessage(proposal, data)        → { subject?, body }
+//   narrativeReason(proposal, data)     → { narrative }
+//   suggestNextMove(entity, ctx)        → AI-strategist next-move plan
 
-import type { Proposal, SheetData } from './types'
+import type { Contact, Deal, Lead, Proposal, SheetData, Task } from './types'
 
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || ''
 const APPS_SCRIPT_KEY = import.meta.env.VITE_APPS_SCRIPT_KEY || ''
@@ -141,4 +142,181 @@ function inferGoal(hint: string): string {
     case 'no-show-recovery': return 'They missed a confirmed booking. Be friendly — assume good faith. Offer a fresh booking link.'
     default: return hint
   }
+}
+
+// ============================================================
+// AI BDR — Suggest next move
+// ============================================================
+
+export type NextMoveAction =
+  | 'send-email'
+  | 'send-sms'
+  | 'create-task'
+  | 'log-activity'
+  | 'update-deal'
+  | 'create-deal'
+  | 'convert-lead'
+  | 'wait'
+  | 'pause'
+
+export interface NextMoveSuggestion {
+  narrative: string
+  recommendedAction: NextMoveAction
+  reasoning: string
+  draftedSubject: string
+  draftedBody: string
+  taskTitle: string
+  taskNotes: string
+  alternativeActions: string[]
+  confidence: number
+  model: string
+}
+
+export type SuggestEntity =
+  | { kind: 'task'; task: Task }
+  | { kind: 'contact'; contact: Contact }
+  | { kind: 'deal'; deal: Deal }
+  | { kind: 'lead'; lead: Lead }
+
+/**
+ * Ask the AI BDR what to do next on a given entity. The client builds a rich
+ * context (entity + relations + recent activity) and the BDR strategist prompt
+ * on the server returns a concrete next-move plan.
+ */
+export async function suggestNextMove(
+  entity: SuggestEntity,
+  data: SheetData,
+  options: { goal?: string } = {},
+): Promise<NextMoveSuggestion> {
+  const context = buildSuggestionContext(entity, data)
+  return call<NextMoveSuggestion>('aiSuggestNextMove', {
+    entityType: entity.kind,
+    context,
+    goal: options.goal || '',
+  })
+}
+
+function buildSuggestionContext(entity: SuggestEntity, data: SheetData): Record<string, unknown> {
+  const ctx: Record<string, unknown> = {}
+
+  if (entity.kind === 'task') {
+    const t = entity.task
+    ctx.task = {
+      title: t.title,
+      priority: t.priority,
+      status: t.status,
+      dueDate: t.dueDate,
+      notes: t.notes,
+    }
+    if (t.contactId) {
+      const c = data.contacts.find((x) => x.id === t.contactId)
+      if (c) ctx.contact = serializeContact(c, data)
+    }
+    if (t.dealId) {
+      const d = data.deals.find((x) => x.id === t.dealId)
+      if (d) ctx.deal = serializeDeal(d)
+    }
+    if (t.contactId) ctx.recentActivity = recentActivityFor(t.contactId, data)
+  }
+
+  if (entity.kind === 'contact') {
+    ctx.contact = serializeContact(entity.contact, data)
+    ctx.recentActivity = recentActivityFor(entity.contact.id, data)
+    const openDeal = data.deals.find(
+      (d) => d.contactId === entity.contact.id && !d.stage.startsWith('Closed'),
+    )
+    if (openDeal) ctx.deal = serializeDeal(openDeal)
+  }
+
+  if (entity.kind === 'deal') {
+    ctx.deal = serializeDeal(entity.deal)
+    if (entity.deal.contactId) {
+      const c = data.contacts.find((x) => x.id === entity.deal.contactId)
+      if (c) ctx.contact = serializeContact(c, data)
+      ctx.recentActivity = recentActivityFor(entity.deal.contactId, data)
+    }
+  }
+
+  if (entity.kind === 'lead') {
+    const l = entity.lead
+    ctx.lead = {
+      name: `${l.firstName} ${l.lastName}`.trim(),
+      email: l.email,
+      title: l.title || l.headline,
+      company: l.companyName,
+      linkedinUrl: l.linkedinUrl,
+      location: l.location,
+      score: l.score,
+      temperature: l.temperature,
+      status: l.status,
+      source: l.source,
+    }
+    // Parse and surface their engagement signals
+    try {
+      const sigs = JSON.parse(l.engagementSignals || '[]') as Array<{ kind: string; ts: string; target?: string }>
+      ctx.signals = sigs.slice(-10).map((s) => `${s.kind} on ${(s.ts || '').slice(0, 10)}${s.target ? ` (${s.target})` : ''}`)
+    } catch {
+      ctx.signals = []
+    }
+  }
+
+  return ctx
+}
+
+function serializeContact(c: Contact, data: SheetData) {
+  const company = c.companyId ? data.companies.find((co) => co.id === c.companyId) : null
+  return {
+    name: `${c.firstName} ${c.lastName}`.trim(),
+    title: c.title,
+    email: c.email,
+    phone: c.phone,
+    linkedinUrl: c.linkedinUrl,
+    state: c.state,
+    status: c.status,
+    tags: c.tags,
+    company: company?.name || '',
+    companyIndustry: company?.industry || '',
+    companySize: company?.size || '',
+  }
+}
+
+function serializeDeal(d: Deal) {
+  return {
+    title: d.title,
+    stage: d.stage,
+    value: d.value,
+    mrr: d.mrr,
+    probability: d.probability,
+    closeDate: d.closeDate,
+    contractEnd: d.contractEnd,
+    notes: d.notes,
+  }
+}
+
+function recentActivityFor(contactId: string, data: SheetData): string[] {
+  const out: Array<{ ts: string; line: string }> = []
+
+  for (const s of data.emailSends) {
+    if (s.contactId !== contactId) continue
+    if (s.sentAt) out.push({ ts: s.sentAt, line: `Sent email "${s.subject}" on ${s.sentAt.slice(0, 10)}${s.openedAt ? ' · OPENED' : ''}${s.clickedAt ? ' · CLICKED' : ''}${s.repliedAt ? ' · REPLIED' : ''}` })
+  }
+  for (const sms of data.smsSends) {
+    if (sms.contactId !== contactId) continue
+    if (sms.sentAt) out.push({ ts: sms.sentAt, line: `Sent SMS on ${sms.sentAt.slice(0, 10)}${sms.repliedAt ? ' · REPLIED' : ''}` })
+  }
+  for (const log of data.activityLogs) {
+    if (log.entityType === 'contact' && log.entityId === contactId) {
+      out.push({ ts: log.occurredAt || log.createdAt, line: `${log.kind}${log.outcome ? ` (${log.outcome})` : ''}: ${(log.body || '').slice(0, 120)}` })
+    }
+  }
+  for (const n of data.notes) {
+    if (n.entityType === 'contact' && n.entityId === contactId) {
+      out.push({ ts: n.createdAt, line: `Note: ${(n.body || '').slice(0, 150)}` })
+    }
+  }
+
+  return out
+    .sort((a, b) => (b.ts || '').localeCompare(a.ts || ''))
+    .slice(0, 10)
+    .map((x) => x.line)
 }
