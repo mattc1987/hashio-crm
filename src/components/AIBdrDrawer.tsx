@@ -43,6 +43,10 @@ export function AIBdrDrawer({ open, onClose, entity, data, goal, onApplied }: Pr
     setInstruction('')
     suggestNextMove(entity, data, { goal })
       .then((s) => {
+        if (!s) {
+          setError('Claude returned an empty response. Try Regenerate.')
+          return
+        }
         setSuggestion(s)
         setEditedSubject(s.draftedSubject || '')
         setEditedBody(s.draftedBody || '')
@@ -63,6 +67,10 @@ export function AIBdrDrawer({ open, onClose, entity, data, goal, onApplied }: Pr
         goal,
         instruction: extra || instruction || '',
       })
+      if (!s) {
+        setError('Claude returned an empty response. Try Regenerate again or simplify your instruction.')
+        return
+      }
       setSuggestion(s)
       setEditedSubject(s.draftedSubject || '')
       setEditedBody(s.draftedBody || '')

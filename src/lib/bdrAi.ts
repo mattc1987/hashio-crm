@@ -13,14 +13,27 @@ const APPS_SCRIPT_KEY = import.meta.env.VITE_APPS_SCRIPT_KEY || ''
 
 async function call<T>(action: string, params: Record<string, unknown>): Promise<T> {
   if (!APPS_SCRIPT_URL) throw new Error('Backend not configured')
-  const url = new URL(APPS_SCRIPT_URL)
-  url.searchParams.set('action', action)
-  url.searchParams.set('key', APPS_SCRIPT_KEY)
-  url.searchParams.set('payload', JSON.stringify(params))
-  const res = await fetch(url.toString(), { method: 'GET' })
+
+  // POST so the payload (which can include rich CRM context — sometimes 5-10 KB)
+  // doesn't hit Apps Script's URL length limit (~16 KB total). Apps Script
+  // doPost reads the same `action`, `key`, `payload` form fields.
+  const body = new URLSearchParams()
+  body.set('action', action)
+  body.set('key', APPS_SCRIPT_KEY)
+  body.set('payload', JSON.stringify(params))
+
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    body,
+    redirect: 'follow',
+    // Apps Script needs Content-Type: application/x-www-form-urlencoded; URLSearchParams sets this.
+  })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const json = await res.json()
+  const json = await res.json().catch(() => ({ ok: false, error: 'Non-JSON response from Apps Script (likely an unhandled error or stale deploy).' }))
   if (!json.ok) throw new Error(json.error || 'Failed')
+  if (json.data === undefined || json.data === null) {
+    throw new Error('Apps Script returned ok=true but no data — likely a transient error on the AI call. Try again.')
+  }
   return json.data as T
 }
 
