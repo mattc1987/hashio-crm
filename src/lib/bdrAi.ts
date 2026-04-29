@@ -558,6 +558,69 @@ export async function suggestTargets(
   })
 }
 
+// ============================================================
+// AI Lead Enrichment — fill missing fields
+// ============================================================
+
+export interface LeadEnrichment {
+  title: string
+  headline: string
+  companyIndustry: string
+  companySize: string
+  linkedinSearchUrl: string
+  notes: string
+  confidence: number
+  model: string
+}
+
+export async function enrichLead(lead: Lead): Promise<LeadEnrichment> {
+  return call<LeadEnrichment>('aiEnrichLead', {
+    lead: {
+      firstName: lead.firstName,
+      lastName: lead.lastName,
+      email: lead.email,
+      title: lead.title,
+      headline: lead.headline,
+      companyName: lead.companyName,
+      companyIndustry: lead.companyIndustry,
+      companySize: lead.companySize,
+      location: lead.location,
+      linkedinUrl: lead.linkedinUrl,
+      source: lead.source,
+    },
+  })
+}
+
+// ============================================================
+// AI Strategist proposals (free-form, beyond rules)
+// ============================================================
+
+export interface StrategistProposal {
+  title: string
+  reason: string
+  expectedOutcome: string
+  actionKind: 'send-email' | 'create-task' | 'log-activity' | 'update-deal' | 'create-deal' | 'create-note' | 'research'
+  priority: 'critical' | 'high' | 'medium' | 'low'
+  risk: 'safe' | 'moderate' | 'sensitive'
+  confidence: number
+  draftedSubject: string
+  draftedBody: string
+  taskTitle: string
+  taskNotes: string
+  contactRef: string
+  dealRef: string
+}
+
+export interface StrategistResult {
+  proposals: StrategistProposal[]
+  model: string
+}
+
+export async function strategistProposals(data: SheetData): Promise<StrategistResult> {
+  const digest = buildDashboardDigest(data) // reuse the same compact digest
+  return call<StrategistResult>('aiStrategistProposals', { digest })
+}
+
 /** Build the active booking-link list with REAL public URLs so Claude can
  *  drop them verbatim into drafted emails instead of inventing Calendly URLs. */
 function buildBookingLinksContext(data: SheetData): Array<Record<string, unknown>> {

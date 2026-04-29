@@ -10,9 +10,9 @@ import { Card, CardHeader, PageHeader, Stat, Badge, Button, Empty, Input, Textar
 import { generateBriefing } from '../lib/briefing'
 import { runEngine, makeProposalId, type ProposalDraft } from '../lib/bdrEngine'
 import { executeProposal } from '../lib/bdrExecutor'
-import { draftMessage as aiDraftMessage, type DraftResult } from '../lib/bdrAi'
+import { draftMessage as aiDraftMessage, strategistProposals, type DraftResult, type StrategistProposal } from '../lib/bdrAi'
 import '../lib/bdrRules' // registers rules as a side effect
-import { api } from '../lib/api'
+import { api, invokeAction } from '../lib/api'
 import type { Proposal, ProposalActionKind, ProposalCategory, ProposalRisk, SheetData } from '../lib/types'
 import { cn } from '../lib/cn'
 
@@ -57,6 +57,9 @@ export function Briefing() {
   const [showHeuristic, setShowHeuristic] = useState(false)
   const [running, setRunning] = useState<Set<string>>(new Set())
   const [undoingAll, setUndoingAll] = useState(false)
+  const [strategistDrafts, setStrategistDrafts] = useState<StrategistProposal[]>([])
+  const [strategistLoading, setStrategistLoading] = useState(false)
+  const [strategistError, setStrategistError] = useState<string | null>(null)
   const data = 'data' in state ? state.data : undefined
 
   const engineResult = useMemo(() => {
@@ -306,6 +309,25 @@ export function Briefing() {
               Briefing
             </Button>
             <Button
+              variant="secondary"
+              icon={strategistLoading ? <RefreshCw size={13} className="animate-spin" /> : <Sparkles size={13} />}
+              disabled={strategistLoading}
+              onClick={async () => {
+                setStrategistLoading(true)
+                setStrategistError(null)
+                try {
+                  const r = await strategistProposals(data)
+                  setStrategistDrafts(r.proposals || [])
+                } catch (err) {
+                  setStrategistError((err as Error).message)
+                } finally {
+                  setStrategistLoading(false)
+                }
+              }}
+            >
+              {strategistLoading ? 'Thinking…' : 'Run AI strategist'}
+            </Button>
+            <Button
               icon={<RefreshCw size={13} />}
               onClick={async () => {
                 await refresh()
@@ -419,6 +441,43 @@ export function Briefing() {
           </div>
         </div>
       </Card>
+
+      {/* AI Strategist proposals — free-form, beyond rules */}
+      {(strategistDrafts.length > 0 || strategistError) && (
+        <Card padded={false}>
+          <div className="px-5 py-3 border-soft-b flex items-center gap-2">
+            <Sparkles size={14} className="text-[var(--color-brand-600)]" />
+            <span className="text-[13px] font-semibold text-body">AI Strategist proposals</span>
+            <Badge tone="brand">{strategistDrafts.length}</Badge>
+            <button
+              onClick={() => { setStrategistDrafts([]); setStrategistError(null) }}
+              className="ml-auto text-[11px] text-muted hover:text-body"
+            >
+              Dismiss all
+            </button>
+          </div>
+          {strategistError && (
+            <div className="px-5 py-3 text-[12px] text-[var(--color-danger)] bg-[color:rgba(239,76,76,0.06)]">
+              {strategistError}
+            </div>
+          )}
+          <div className="divide-y divide-[color:var(--border)]">
+            {strategistDrafts.map((p, i) => (
+              <StrategistRow
+                key={i}
+                proposal={p}
+                onDismiss={() => setStrategistDrafts((arr) => arr.filter((_, idx) => idx !== i))}
+                onApply={async () => {
+                  // Apply: create the appropriate entity based on actionKind
+                  await applyStrategistProposal(p, data)
+                  setStrategistDrafts((arr) => arr.filter((_, idx) => idx !== i))
+                  setRefreshTick((t) => t + 1)
+                }}
+              />
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Proposal queue */}
       {visibleProposed.length === 0 ? (
@@ -896,4 +955,195 @@ function describeAction(p: Proposal): string {
   } catch {
     return p.actionPayload || ''
   }
+}
+
+// ============================================================
+// Strategist row (renders ad-hoc Claude-generated proposals)
+// ============================================================
+
+function StrategistRow({
+  proposal,
+  onApply,
+  onDismiss,
+}: {
+  proposal: StrategistProposal
+  onApply: () => Promise<void> | void
+  onDismiss: () => void
+}) {
+  const [applying, setApplying] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
+  return (
+    <div className="px-5 py-3">
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[13px] font-medium text-body">{proposal.title}</span>
+            <Badge tone={proposal.priority === 'critical' ? 'danger' : proposal.priority === 'high' ? 'warning' : proposal.priority === 'medium' ? 'info' : 'neutral'}>
+              {proposal.priority}
+            </Badge>
+            <Badge tone={proposal.risk === 'sensitive' ? 'danger' : proposal.risk === 'moderate' ? 'warning' : 'success'}>
+              {proposal.risk}
+            </Badge>
+            <Badge tone="brand">{proposal.confidence}/100</Badge>
+          </div>
+          <div className="text-[12px] text-muted mt-1 leading-relaxed">{proposal.reason}</div>
+          {proposal.expectedOutcome && (
+            <div className="text-[11px] text-[var(--text-faint)] mt-1">→ {proposal.expectedOutcome}</div>
+          )}
+          {proposal.actionKind === 'send-email' && proposal.draftedBody && (
+            <details className="mt-2">
+              <summary className="text-[11px] text-muted cursor-pointer hover:text-body">View drafted email</summary>
+              <div className="mt-1.5 surface-2 rounded-[var(--radius-sm)] p-2 text-[11px] font-mono whitespace-pre-wrap">
+                {proposal.draftedSubject && <div className="font-semibold mb-1">{proposal.draftedSubject}</div>}
+                {proposal.draftedBody}
+              </div>
+            </details>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button size="sm" variant="ghost" icon={<X size={11} />} onClick={onDismiss}>Skip</Button>
+          <Button
+            size="sm"
+            variant="primary"
+            icon={applying ? <RefreshCw size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
+            disabled={applying}
+            onClick={async () => {
+              setApplying(true)
+              try {
+                await onApply()
+                setResult({ ok: true, message: 'Applied.' })
+              } catch (err) {
+                setResult({ ok: false, message: (err as Error).message })
+              } finally {
+                setApplying(false)
+              }
+            }}
+          >
+            {applying ? 'Applying…' : 'Apply'}
+          </Button>
+        </div>
+      </div>
+      {result && (
+        <div className={cn(
+          'mt-2 text-[11px]',
+          result.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]',
+        )}>
+          {result.message}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Apply a strategist proposal — translate into the appropriate api.* call
+async function applyStrategistProposal(p: StrategistProposal, data: SheetData): Promise<void> {
+  const now = new Date().toISOString()
+
+  if (p.actionKind === 'send-email' && p.draftedSubject && p.draftedBody) {
+    // Resolve recipient
+    let to = ''
+    if (p.contactRef) {
+      const c = data.contacts.find((x) => x.id === p.contactRef)
+      to = c?.email || ''
+    }
+    if (!to) throw new Error('No recipient email — strategist proposal needs a contactRef with a valid email.')
+    const res = await invokeAction('sendBdrEmail', {
+      to,
+      subject: p.draftedSubject,
+      body: p.draftedBody,
+      contactId: p.contactRef || '',
+      trackOpens: true,
+    })
+    if (!res.ok) throw new Error(res.error || 'Send failed')
+    return
+  }
+
+  if (p.actionKind === 'create-task' || p.actionKind === 'research') {
+    const res = await api.task.create({
+      title: p.taskTitle || p.title,
+      dueDate: now,
+      priority: p.priority === 'critical' ? 'high' : p.priority === 'high' ? 'high' : 'medium',
+      contactId: p.contactRef || '',
+      dealId: p.dealRef || '',
+      notes: p.taskNotes || `[AI Strategist] ${p.reason}\n\nExpected: ${p.expectedOutcome}`,
+      status: 'open',
+      createdAt: now,
+    })
+    if (!res.ok) throw new Error(res.error || 'Task create failed')
+    return
+  }
+
+  if (p.actionKind === 'log-activity' && p.contactRef) {
+    const res = await api.activityLog.create({
+      entityType: 'contact',
+      entityId: p.contactRef,
+      kind: 'other',
+      outcome: '',
+      body: p.taskNotes || p.reason,
+      durationMinutes: 0,
+      occurredAt: now,
+      createdAt: now,
+      author: 'AI Strategist',
+    })
+    if (!res.ok) throw new Error(res.error || 'Log failed')
+    return
+  }
+
+  if (p.actionKind === 'create-note' && p.contactRef) {
+    const res = await api.note.create({
+      entityType: 'contact',
+      entityId: p.contactRef,
+      body: p.reason + (p.expectedOutcome ? `\n\nExpected: ${p.expectedOutcome}` : ''),
+      author: 'AI Strategist',
+      createdAt: now,
+    })
+    if (!res.ok) throw new Error(res.error || 'Note failed')
+    return
+  }
+
+  if (p.actionKind === 'update-deal' && p.dealRef) {
+    // Create a task to do the update — full natural-language deal updates
+    // are Phase 3.
+    const res = await api.task.create({
+      title: 'Deal update: ' + p.title,
+      dueDate: now,
+      priority: 'medium',
+      dealId: p.dealRef,
+      contactId: p.contactRef || '',
+      notes: `[AI Strategist] ${p.reason}\n\n${p.taskNotes || p.expectedOutcome}`,
+      status: 'open',
+      createdAt: now,
+    })
+    if (!res.ok) throw new Error(res.error || 'Task create failed')
+    return
+  }
+
+  if (p.actionKind === 'create-deal' && p.contactRef) {
+    const c = data.contacts.find((x) => x.id === p.contactRef)
+    const res = await api.deal.create({
+      title: p.taskTitle || p.title,
+      contactId: p.contactRef,
+      companyId: c?.companyId || '',
+      value: 0,
+      stage: 'Lead',
+      probability: 10,
+      notes: `[AI Strategist] ${p.reason}`,
+      createdAt: now,
+    })
+    if (!res.ok) throw new Error(res.error || 'Deal create failed')
+    return
+  }
+
+  // Fallback: log as a task so nothing's lost
+  const res = await api.task.create({
+    title: p.title,
+    dueDate: now,
+    priority: 'medium',
+    contactId: p.contactRef || '',
+    dealId: p.dealRef || '',
+    notes: `[AI Strategist · ${p.actionKind}] ${p.reason}\n\n${p.taskNotes || ''}`,
+    status: 'open',
+    createdAt: now,
+  })
+  if (!res.ok) throw new Error(res.error || 'Task create failed')
 }

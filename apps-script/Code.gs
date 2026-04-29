@@ -342,6 +342,25 @@ function handle_(e) {
         break;
       }
 
+      case 'aiEnrichLead': {
+        // Fill missing lead fields (industry, size, likely role, LinkedIn search
+        // hint) using whatever the lead already has + Claude's domain knowledge.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = aiEnrichLead_(payload);
+        break;
+      }
+
+      case 'aiStrategistProposals': {
+        // Free-form proposals beyond the rules engine — Claude reads a digest
+        // and returns 3-7 ad-hoc actions the rules might miss (creative plays,
+        // hygiene moves, strategic pivots).
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = aiStrategistProposals_(payload);
+        break;
+      }
+
       default:
         throw new Error('Unknown action: ' + params.action);
     }
@@ -1352,6 +1371,120 @@ function aiSuggestTargets_(payload) {
   let parsed = { targets: [], researchSteps: [] };
   try { parsed = JSON.parse(cleaned); }
   catch (e) { /* return empty */ }
+  parsed.model = model;
+  return parsed;
+}
+
+
+/* ---------- AI Lead enrichment — fill missing fields ---------- */
+function aiEnrichLead_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured.');
+
+  const lead = payload.lead || {};
+
+  const systemPrompt =
+    'You enrich sparse lead records for Matt Campbell\'s BDR system at Hashio Inc. (B2B SaaS for cannabis cultivators). ' +
+    'Given whatever fields a lead has, infer likely missing fields. Be honest — if you can\'t infer something, leave it empty. ' +
+    'Never invent specific data (real email addresses, real LinkedIn URNs). DO suggest LinkedIn SEARCH URLs and category-level ' +
+    'attributes (industry, size band, license type).\n\n' +
+    'Return STRICT JSON only:\n' +
+    '{\n' +
+    '  "title": "best-guess role like \\"Director of Cultivation\\" if not given, else empty",\n' +
+    '  "headline": "alternate phrasing of role for display",\n' +
+    '  "companyIndustry": "Cannabis Cultivation / Edibles / Multi / etc.",\n' +
+    '  "companySize": "Small / Medium / Large / empty",\n' +
+    '  "linkedinSearchUrl": "https://www.linkedin.com/search/results/people/?keywords=... if you can construct one from name+company, else empty",\n' +
+    '  "notes": "1-2 sentences of context — why this lead might be a good fit, things to research, etc.",\n' +
+    '  "confidence": 0-100\n' +
+    '}';
+
+  const userMessage = 'Lead to enrich (some fields may be empty):\n' + JSON.stringify(lead, null, 2);
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'x-api-key': key, 'anthropic-version': ANTHROPIC_API_VERSION_ },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 600,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  let parsed = {};
+  try { parsed = JSON.parse(cleaned); } catch (e) { parsed = {}; }
+  parsed.model = model;
+  return parsed;
+}
+
+/* ---------- AI Strategist — free-form proposals beyond rules ---------- */
+function aiStrategistProposals_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured.');
+
+  const digest = payload.digest || {};
+
+  const systemPrompt =
+    'You are Matt Campbell\'s autonomous BDR at Hashio Inc. (B2B SaaS for cannabis cultivators). ' +
+    'A rules-based engine already covers the obvious moves (reply needed → respond, hot lead → enroll, stale deal → nudge). ' +
+    'Your job: propose 3-7 ADDITIONAL moves the rules can\'t see. Examples:\n' +
+    '- Creative plays: a personalized note referencing their LinkedIn post about cost-per-pound\n' +
+    '- Strategic pivots: "deal stalled in Demo for 3 weeks — try a different stakeholder"\n' +
+    '- Cross-sells: "Customer X had great expansion in Q1 — propose case study collab"\n' +
+    '- Hygiene: "5 leads with no activity for 60d — bulk archive"\n' +
+    '- Research: "competitor mentioned in 2 deals — prep a battlecard"\n\n' +
+    'Avoid obvious moves the rules already handle. Be specific to the data given. Each proposal should be ACTIONABLE today.\n\n' +
+    'STRICT JSON only:\n' +
+    '{\n' +
+    '  "proposals": [\n' +
+    '    {\n' +
+    '      "title": "punchy 5-10 word title",\n' +
+    '      "reason": "1-2 sentences citing specific data points",\n' +
+    '      "expectedOutcome": "what changes if Matt does this",\n' +
+    '      "actionKind": "send-email" | "create-task" | "log-activity" | "update-deal" | "create-deal" | "create-note" | "research",\n' +
+    '      "priority": "critical" | "high" | "medium" | "low",\n' +
+    '      "risk": "safe" | "moderate" | "sensitive",\n' +
+    '      "confidence": 0-100,\n' +
+    '      "draftedSubject": "subject if email, else empty",\n' +
+    '      "draftedBody": "body if email, else empty",\n' +
+    '      "taskTitle": "if create-task",\n' +
+    '      "taskNotes": "if create-task",\n' +
+    '      "contactRef": "contactId if applicable, else empty",\n' +
+    '      "dealRef": "dealId if applicable, else empty"\n' +
+    '    }\n' +
+    '  ]\n' +
+    '}';
+
+  const userMessage = 'CRM digest:\n' + JSON.stringify(digest, null, 2) + '\n\nReturn 3-7 strategist proposals.';
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'x-api-key': key, 'anthropic-version': ANTHROPIC_API_VERSION_ },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 3000,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  let parsed = { proposals: [] };
+  try { parsed = JSON.parse(cleaned); } catch (e) { /* return empty */ }
   parsed.model = model;
   return parsed;
 }

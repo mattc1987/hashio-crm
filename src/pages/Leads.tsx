@@ -13,6 +13,7 @@ import {
 } from '../lib/leadScoring'
 import { relativeDate } from '../lib/format'
 import { api, hasWriteBackend } from '../lib/api'
+import { enrichLead } from '../lib/bdrAi'
 import type { Lead, LeadStatus, LeadTemperature } from '../lib/types'
 import { cn } from '../lib/cn'
 import { AIBdrDrawer } from '../components/AIBdrDrawer'
@@ -466,7 +467,41 @@ function LeadDrawer({
 }) {
   const signals = parseSignals(lead.engagementSignals)
   const [enrolling, setEnrolling] = useState(false)
+  const [enriching, setEnriching] = useState(false)
+  const [enrichResult, setEnrichResult] = useState<{ ok: boolean; message: string } | null>(null)
   const fullName = `${lead.firstName} ${lead.lastName}`.trim() || lead.email
+
+  const enrich = async () => {
+    setEnriching(true)
+    setEnrichResult(null)
+    try {
+      const enr = await enrichLead(lead)
+      // Apply non-empty fields back to the lead
+      const patch: Record<string, unknown> = { id: lead.id }
+      if (!lead.title && enr.title) patch.title = enr.title
+      if (!lead.headline && enr.headline) patch.headline = enr.headline
+      if (!lead.companyIndustry && enr.companyIndustry) patch.companyIndustry = enr.companyIndustry
+      if (!lead.companySize && enr.companySize) patch.companySize = enr.companySize
+      if (!lead.linkedinUrl && enr.linkedinSearchUrl) patch.linkedinUrl = enr.linkedinSearchUrl
+      // Append enrichment notes
+      const newNotes = [lead.notes, enr.notes ? `[AI enrichment, ${enr.confidence}% conf] ${enr.notes}` : '']
+        .filter(Boolean).join('\n\n')
+      if (newNotes !== lead.notes) patch.notes = newNotes
+
+      const fieldsToUpdate = Object.keys(patch).filter((k) => k !== 'id').length
+      if (fieldsToUpdate === 0) {
+        setEnrichResult({ ok: true, message: 'Nothing to enrich — all fields already filled.' })
+      } else {
+        await api.lead.update(patch)
+        setEnrichResult({ ok: true, message: `Updated ${fieldsToUpdate} field${fieldsToUpdate === 1 ? '' : 's'} (${enr.confidence}% confidence). Refresh to see.` })
+        onSaved()
+      }
+    } catch (err) {
+      setEnrichResult({ ok: false, message: (err as Error).message })
+    } finally {
+      setEnriching(false)
+    }
+  }
 
   const setStatus = async (status: LeadStatus) => {
     await api.lead.update({ id: lead.id, status })
@@ -667,10 +702,28 @@ function LeadDrawer({
               </>
             )}
           </div>
+          {hasWriteBackend() && (
+            <Button
+              icon={<Sparkles size={13} />}
+              onClick={enrich}
+              disabled={enriching}
+              title="Use AI to fill in missing fields"
+            >
+              {enriching ? 'Enriching…' : 'AI enrich'}
+            </Button>
+          )}
           <Button icon={<UserPlus size={13} />} onClick={convertToContact}>Convert to contact</Button>
           <div className="flex-1" />
           <Button icon={<Archive size={13} />} onClick={() => setStatus('archived')}>Archive</Button>
         </footer>
+        {enrichResult && (
+          <div className={cn(
+            'px-5 py-2 text-[12px] border-soft-t',
+            enrichResult.ok ? 'bg-[color:rgba(48,179,107,0.08)] text-[var(--color-success)]' : 'bg-[color:rgba(239,76,76,0.08)] text-[var(--color-danger)]',
+          )}>
+            {enrichResult.message}
+          </div>
+        )}
       </div>
     </div>
   )
