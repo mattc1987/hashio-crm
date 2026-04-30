@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Papa from 'papaparse'
 import { Upload, CheckCircle2, AlertTriangle, ArrowRight, ArrowLeft, X } from 'lucide-react'
 import { Card, CardHeader, Button, PageHeader, Badge, Select } from '../components/ui'
 import { cn } from '../lib/cn'
-import { api } from '../lib/api'
+import { api, invokeAction } from '../lib/api'
+import { recordCreate, localId } from '../lib/localCache'
 import { useSheetData } from '../lib/sheet-context'
 
 type Entity = 'companies' | 'contacts' | 'deals' | 'tasks'
@@ -76,8 +77,20 @@ export function Import() {
   const [rows, setRows] = useState<Record<string, string>[]>([])
   const [mapping, setMapping] = useState<Record<string, string>>({}) // source col -> target field key (or '' for ignore)
 
-  const [progress, setProgress] = useState<{ ok: number; failed: number; total: number; done: boolean; cancelled?: boolean } | null>(null)
+  const [progress, setProgress] = useState<{ ok: number; failed: number; skipped: number; total: number; done: boolean; cancelled?: boolean } | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // Warn before nav away while import is in progress (avoid losing work).
+  const importRunning = !!progress && !progress.done
+  useEffect(() => {
+    if (!importRunning) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [importRunning])
   const cancelRef = useRef(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -123,7 +136,7 @@ export function Import() {
   const commit = async () => {
     if (!rows.length) return
     cancelRef.current = false
-    setProgress({ ok: 0, failed: 0, total: rows.length, done: false })
+    setProgress({ ok: 0, failed: 0, skipped: 0, total: rows.length, done: false })
     setError(null)
 
     // Company name lookup (for contacts + deals). Pre-build the name→id map.
@@ -132,47 +145,140 @@ export function Import() {
       if (c.name) companyIdByName.set(c.name.toLowerCase().trim(), c.id)
     })
 
-    let ok = 0, failed = 0
-    for (let i = 0; i < rows.length; i++) {
-      if (cancelRef.current) {
-        setProgress({ ok, failed, total: rows.length, done: true, cancelled: true })
-        return
+    // Existing-email lookup for idempotent contact imports.
+    const existingContactEmails = new Set<string>()
+    if (entity === 'contacts') {
+      ;(data?.contacts || []).forEach((c) => {
+        if (c.email) existingContactEmails.add(c.email.toLowerCase().trim())
+      })
+    }
+
+    // ── PASS 1: prep all rows in memory (fast — pure JS) ──────────────────
+    // - Apply column mapping
+    // - Skip dupes (existing email)
+    // - Pre-create any missing companies (small N, sequential is fine)
+    // - Skip empty rows
+    let ok = 0, failed = 0, skipped = 0
+    const preparedRows: Record<string, unknown>[] = []
+
+    // Resolve all unique company names first → batch any missing creates
+    const allCompanyNames = new Set<string>()
+    for (const raw of rows) {
+      const mapped = applyMapping(raw, mapping)
+      if ('companyName' in mapped) {
+        const cname = String(mapped.companyName || '').trim()
+        if (cname) allCompanyNames.add(cname)
       }
+    }
+    for (const cname of allCompanyNames) {
+      if (cancelRef.current) break
+      if (!companyIdByName.has(cname.toLowerCase())) {
+        try {
+          const newCompany = await api.company.create({ name: cname })
+          if (newCompany.row?.id) {
+            companyIdByName.set(cname.toLowerCase(), newCompany.row.id as string)
+          }
+        } catch {
+          // Non-fatal — contact will get empty companyId
+        }
+      }
+    }
+
+    for (let i = 0; i < rows.length; i++) {
+      if (cancelRef.current) break
       try {
         const mapped = applyMapping(rows[i], mapping)
 
-        // Resolve companyName → companyId (auto-create if unknown)
+        if (entity === 'contacts') {
+          const email = String(mapped.email || '').toLowerCase().trim()
+          if (email && existingContactEmails.has(email)) {
+            skipped++
+            continue
+          }
+          if (email) existingContactEmails.add(email)
+        }
+
         if ('companyName' in mapped) {
           const cname = String(mapped.companyName || '').trim()
           delete mapped.companyName
           if (cname) {
-            const existing = companyIdByName.get(cname.toLowerCase())
-            if (existing) {
-              mapped.companyId = existing
-            } else {
-              const newCompany = await api.company.create({ name: cname })
-              if (newCompany.row?.id) {
-                mapped.companyId = newCompany.row.id
-                companyIdByName.set(cname.toLowerCase(), newCompany.row.id)
-              }
-            }
+            const id = companyIdByName.get(cname.toLowerCase())
+            if (id) mapped.companyId = id
           }
         }
 
-        // Skip rows with no meaningful content (e.g. missing required fields).
         if (isEmpty(mapped, entity)) { failed++; continue }
-
-        const result = await apiCreateFor(entity, mapped)
-        if (result.ok) ok++; else failed++
+        preparedRows.push(mapped)
       } catch {
         failed++
       }
-
-      if (i % 25 === 0 || i === rows.length - 1) {
-        setProgress({ ok, failed, total: rows.length, done: false })
-      }
     }
-    setProgress({ ok, failed, total: rows.length, done: true })
+
+    if (cancelRef.current) {
+      setProgress({ ok, failed, skipped, total: rows.length, done: true, cancelled: true })
+      return
+    }
+
+    // ── PASS 2: bulk write to Apps Script (batches of 200) ────────────────
+    // Falls back to per-row if bulkCreate isn't available (e.g. Apps Script
+    // not redeployed yet) — graceful degradation.
+    const BATCH_SIZE = 200
+    let useBulk = true
+
+    for (let i = 0; i < preparedRows.length; i += BATCH_SIZE) {
+      if (cancelRef.current) break
+      const batch = preparedRows.slice(i, i + BATCH_SIZE)
+
+      // Optimistically record in local cache so the UI sees them immediately
+      // even before Apps Script finishes the write.
+      const provisional = batch.map((row) => {
+        const id = (row.id as string) || localId(entity)
+        const withId = { ...row, id, createdAt: (row.createdAt as string) || new Date().toISOString() }
+        recordCreate(entity, withId)
+        return withId
+      })
+
+      if (useBulk) {
+        try {
+          const res = await invokeAction('bulkCreate', { entity, rows: provisional })
+          if (res.ok) {
+            ok += batch.length
+          } else {
+            // bulkCreate not available → fall back to per-row from here
+            useBulk = false
+            failed += batch.length
+            // Replay this batch as per-row
+            for (const row of provisional) {
+              try {
+                const r = await apiCreateFor(entity, row as Record<string, unknown>)
+                if (r.ok) { ok++; failed-- }
+              } catch { /* count stays */ }
+            }
+          }
+        } catch {
+          useBulk = false
+          for (const row of provisional) {
+            try {
+              const r = await apiCreateFor(entity, row as Record<string, unknown>)
+              if (r.ok) ok++; else failed++
+            } catch { failed++ }
+          }
+        }
+      } else {
+        // Per-row fallback path
+        for (const row of provisional) {
+          if (cancelRef.current) break
+          try {
+            const r = await apiCreateFor(entity, row as Record<string, unknown>)
+            if (r.ok) ok++; else failed++
+          } catch { failed++ }
+        }
+      }
+
+      setProgress({ ok, failed, skipped, total: rows.length, done: false })
+    }
+
+    setProgress({ ok, failed, skipped, total: rows.length, done: cancelRef.current ? true : true, cancelled: cancelRef.current })
     refresh()
   }
 
@@ -372,11 +478,11 @@ export function Import() {
               title={progress?.done
                 ? (progress.cancelled ? 'Import cancelled' : 'Import finished')
                 : progress
-                ? `Importing… ${progress.ok + progress.failed} / ${progress.total}`
+                ? `Importing… ${progress.ok + progress.failed + progress.skipped} / ${progress.total}`
                 : `Ready to import ${rows.length} row${rows.length === 1 ? '' : 's'}`}
               subtitle={
                 entity === 'contacts'
-                  ? 'Unknown company names will be auto-created as new Companies.'
+                  ? 'Unknown company names will be auto-created. Re-uploads are safe — contacts that already exist (matched by email) are skipped automatically.'
                   : undefined
               }
             />
@@ -388,8 +494,11 @@ export function Import() {
                     style={{ width: `${((progress.ok + progress.failed) / Math.max(1, progress.total)) * 100}%` }}
                   />
                 </div>
-                <div className="flex items-center gap-4 text-[12px]">
+                <div className="flex items-center gap-4 text-[12px] flex-wrap">
                   <span className="text-[var(--color-success)] font-medium">✓ {progress.ok} saved</span>
+                  {progress.skipped > 0 && (
+                    <span className="text-muted font-medium">↺ {progress.skipped} skipped (already exist)</span>
+                  )}
                   {progress.failed > 0 && (
                     <span className="text-[var(--color-danger)] font-medium">✗ {progress.failed} failed</span>
                   )}

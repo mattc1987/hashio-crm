@@ -184,6 +184,16 @@ function handle_(e) {
         break;
       }
 
+      case 'bulkCreate': {
+        // Bulk import endpoint — writes many rows at once in a single Sheet
+        // operation. ~10-50x faster than per-row writes for large CSVs.
+        const payload = safeJson_(params.payload);
+        if (!payload) throw new Error('Missing or invalid payload');
+        out.ok = true;
+        out.data = bulkCreateRows_(payload.entity, payload.rows || []);
+        break;
+      }
+
       case 'ensureHeaders': {
         const payload = safeJson_(params.payload) || {};
         out.ok = true;
@@ -533,6 +543,52 @@ function writeRow_(entity, op, row) {
   }
 
   throw new Error('Unknown op: ' + op);
+}
+
+/** Bulk create — writes many rows in ONE setValues call instead of N
+ *  appendRow calls. ~10-50x faster for large imports. Returns the rows
+ *  with their assigned ids + createdAt timestamps. Only supports `create`
+ *  op (most common bulk case — bulk update/delete are rare). */
+function bulkCreateRows_(entity, rows) {
+  const tabName = TABS[entity];
+  if (!tabName) throw new Error('Unknown entity: ' + entity);
+  if (!rows || rows.length === 0) return { written: 0, ids: [] };
+
+  const ss = getSpreadsheet_();
+  let sheet = ss.getSheetByName(tabName);
+  if (!sheet) {
+    sheet = ss.insertSheet(tabName);
+    sheet.appendRow(KNOWN_HEADERS_[entity] || ['id']);
+  }
+
+  // Union of all keys across all incoming rows — auto-add missing headers.
+  const allKeys = new Set();
+  rows.forEach(function (r) { Object.keys(r).forEach(function (k) { allKeys.add(k); }); });
+  ensureHeaders_(entity, Array.from(allKeys));
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
+  const idCol = headers.indexOf('id');
+  if (idCol < 0) throw new Error('Tab ' + tabName + ' has no `id` column');
+  const createdAtCol = headers.indexOf('createdAt');
+  const updatedAtCol = headers.indexOf('updatedAt');
+
+  const now = new Date().toISOString();
+  const ids = [];
+
+  // Build the 2D array we'll write in one pass.
+  const valuesToWrite = rows.map(function (row) {
+    if (!row.id) row.id = newId_(entity);
+    if (createdAtCol >= 0 && !row.createdAt) row.createdAt = now;
+    if (updatedAtCol >= 0) row.updatedAt = now;
+    ids.push(row.id);
+    return headers.map(function (h) { return row[h] === undefined ? '' : row[h]; });
+  });
+
+  // ONE setValues call writes them all atomically — this is the perf win.
+  const startRow = sheet.getLastRow() + 1;
+  sheet.getRange(startRow, 1, valuesToWrite.length, headers.length).setValues(valuesToWrite);
+
+  return { written: valuesToWrite.length, ids: ids };
 }
 
 function findRowIndex_(data, idCol, id) {

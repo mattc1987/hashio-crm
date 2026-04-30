@@ -99,13 +99,19 @@ export function applyContactFilter(
   }
 
   return ctx.contacts.filter((c) => {
-    // Text search
+    // Text search — case-insensitive substring across all human-meaningful fields.
+    // Includes role + phone (added later than original filter), normalizes
+    // phone digits so "5551234567" matches "(555) 123-4567" etc.
     if (q) {
       const company = c.companyId ? ctx.companies.find((x) => x.id === c.companyId)?.name || '' : ''
+      const phoneDigits = (c.phone || '').replace(/\D/g, '')
+      const qDigits = q.replace(/\D/g, '')
       const haystack = [
-        c.firstName, c.lastName, c.email, c.title, c.state, c.tags, company,
-      ].join(' ').toLowerCase()
-      if (!haystack.includes(q)) return false
+        c.firstName, c.lastName, c.email, c.title, c.role, c.state, c.tags, c.phone, company,
+      ].filter(Boolean).join(' ').toLowerCase()
+      const textMatch = haystack.includes(q)
+      const phoneMatch = qDigits.length >= 3 && phoneDigits.includes(qDigits)
+      if (!textMatch && !phoneMatch) return false
     }
 
     // Tags (OR within tags)
