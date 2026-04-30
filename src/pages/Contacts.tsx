@@ -25,6 +25,8 @@ export function Contacts() {
   const [aiContact, setAiContact] = useState<Contact | null>(null) // contact for AI BDR drawer
   const [scanRunning, setScanRunning] = useState(false)
   const [scanProgress, setScanProgress] = useState('')
+  // Anchor index for shift-click range selection. null = no anchor yet.
+  const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
 
   const data = 'data' in state ? state.data : undefined
   const contacts = data?.contacts ?? []
@@ -49,13 +51,39 @@ export function Contacts() {
 
   if (!data) return <PageHeader title="Contacts" />
 
-  const toggleSelect = (id: string) => {
+  /** Toggle a single row OR range-select with shift-click (Gmail/Finder UX).
+   *  - Plain click: toggle this row, set anchor.
+   *  - Shift+click: select every row between anchor and this row in the
+   *    currently-filtered list. Selection mode (set vs unset) follows the
+   *    state of the anchor row — same as Finder/Gmail. */
+  const toggleSelect = (id: string, idx: number, shiftKey: boolean) => {
+    if (shiftKey && lastSelectedIdx !== null && lastSelectedIdx !== idx) {
+      const lo = Math.min(lastSelectedIdx, idx)
+      const hi = Math.max(lastSelectedIdx, idx)
+      const rangeIds = filtered.slice(lo, hi + 1).map((c) => c.id)
+      // Selection mode: if the anchor row is selected, ADD; if unselected, REMOVE.
+      // (Matches Finder behavior.)
+      const anchorContact = filtered[lastSelectedIdx]
+      const addMode = anchorContact ? selectedIds.has(anchorContact.id) : true
+      setSelectedIds((cur) => {
+        const next = new Set(cur)
+        for (const rid of rangeIds) {
+          if (addMode) next.add(rid)
+          else next.delete(rid)
+        }
+        return next
+      })
+      setLastSelectedIdx(idx)
+      return
+    }
+    // Plain click: toggle + update anchor
     setSelectedIds((cur) => {
       const next = new Set(cur)
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return next
     })
+    setLastSelectedIdx(idx)
   }
 
   const selectAll = () => {
@@ -110,8 +138,17 @@ export function Contacts() {
   const runQualityScan = async () => {
     if (!contacts.length) return
     if (scanRunning) return
+
+    // If contacts are selected, scan only those. Otherwise scan all.
+    const scanTargets = selectedIds.size > 0
+      ? contacts.filter((c) => selectedIds.has(c.id))
+      : contacts
+    const targetLabel = selectedIds.size > 0
+      ? `${scanTargets.length} selected contact${scanTargets.length === 1 ? '' : 's'}`
+      : `all ${contacts.length} contacts`
+
     if (!confirm(
-      `Run quality scan across ${contacts.length} contacts?\n\n` +
+      `Run quality scan across ${targetLabel}?\n\n` +
       `This checks for: shared admin emails (info@, sales@, etc.) with executive titles, ` +
       `personal emails at corporate roles, test/placeholder data, invalid email format, ` +
       `fake phone numbers, duplicate emails, and more.\n\n` +
@@ -122,21 +159,28 @@ export function Contacts() {
     setScanRunning(true)
     setScanProgress('analyzing')
     try {
-      // 1. Run all checks locally (fast — sub-second for 3K contacts)
+      // 1. Run all checks locally (fast — sub-second for 3K contacts).
+      //    Note: dupe detection is still relative to ALL contacts (not just
+      //    the selection), so a selected dupe is correctly flagged even if
+      //    its sibling is unselected.
       const flagsMap = checkAllContacts(contacts)
-      const summary = summarizeFlags(flagsMap, contacts.length)
+      // If scanning a subset, narrow the flagsMap to the selection
+      const filteredFlagsMap = selectedIds.size > 0
+        ? new Map(Array.from(flagsMap.entries()).filter(([id]) => selectedIds.has(id)))
+        : flagsMap
+      const summary = summarizeFlags(filteredFlagsMap, scanTargets.length)
 
-      if (flagsMap.size === 0) {
-        alert(`Quality scan complete — no issues found across ${contacts.length} contacts. 🎉`)
+      if (filteredFlagsMap.size === 0) {
+        alert(`Quality scan complete — no issues found across ${targetLabel}. 🎉`)
         return
       }
 
       // 2. Build the bulk-update patches (tags) + bulk-create note records
-      setScanProgress(`flagged ${flagsMap.size}, applying…`)
+      setScanProgress(`flagged ${filteredFlagsMap.size}, applying…`)
       const tagPatches: Array<{ id: string; tags: string }> = []
       const noteCreates: Array<Record<string, unknown>> = []
       const ts = new Date().toISOString()
-      for (const cf of flagsMap.values()) {
+      for (const cf of filteredFlagsMap.values()) {
         const c = contacts.find((x) => x.id === cf.contactId)
         if (!c) continue
         tagPatches.push({
@@ -172,9 +216,9 @@ export function Contacts() {
 
       // 4. Summary alert
       const lines = [
-        `Quality scan complete on ${contacts.length} contacts.`,
+        `Quality scan complete on ${targetLabel}.`,
         ``,
-        `🚩 Flagged: ${summary.totalFlagged} (${(summary.totalFlagged / contacts.length * 100).toFixed(1)}%)`,
+        `🚩 Flagged: ${summary.totalFlagged} (${(summary.totalFlagged / scanTargets.length * 100).toFixed(1)}%)`,
         `   • High severity: ${summary.highSeverity}`,
         `   • Medium severity: ${summary.mediumSeverity}`,
         `   • Low severity: ${summary.lowSeverity}`,
@@ -285,9 +329,17 @@ export function Contacts() {
                 icon={<ShieldCheck size={13} />}
                 onClick={runQualityScan}
                 disabled={scanRunning}
-                title="Scan all contacts for data-quality issues — runs locally, no AI cost"
+                title={
+                  selectedIds.size > 0
+                    ? `Scan the ${selectedIds.size} selected contact${selectedIds.size === 1 ? '' : 's'} for quality issues`
+                    : 'Scan all contacts for data-quality issues — runs locally, no AI cost'
+                }
               >
-                {scanRunning ? `Scanning… ${scanProgress}` : 'Quality scan'}
+                {scanRunning
+                  ? `Scanning… ${scanProgress}`
+                  : selectedIds.size > 0
+                    ? `Quality scan (${selectedIds.size})`
+                    : 'Quality scan'}
               </Button>
             )}
             <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
@@ -317,13 +369,13 @@ export function Contacts() {
           />
         ) : (
           <div className="divide-y divide-[color:var(--border)]">
-            {filtered.map((c) => (
+            {filtered.map((c, idx) => (
               <ContactRow
                 key={c.id}
                 contact={c}
                 company={companyById(c.companyId)}
                 selected={selectedIds.has(c.id)}
-                onToggleSelect={() => toggleSelect(c.id)}
+                onToggleSelect={(shiftKey) => toggleSelect(c.id, idx, shiftKey)}
                 onEnrollClick={() => setEnrollFor(enrollFor === c.id ? null : c.id)}
                 showEnrollPopover={enrollFor === c.id}
                 sequences={sequences}
@@ -380,7 +432,7 @@ function ContactRow({
   contact: Contact
   company?: Company
   selected: boolean
-  onToggleSelect: () => void
+  onToggleSelect: (shiftKey: boolean) => void
   onEnrollClick: () => void
   showEnrollPopover: boolean
   sequences: Sequence[]
@@ -396,9 +448,9 @@ function ContactRow({
         selected && 'bg-[color:rgba(122,94,255,0.05)]',
       )}
     >
-      {/* Selection checkbox */}
+      {/* Selection checkbox — supports shift-click for range select */}
       <button
-        onClick={(e) => { e.stopPropagation(); onToggleSelect() }}
+        onClick={(e) => { e.stopPropagation(); onToggleSelect(e.shiftKey) }}
         className={cn(
           'w-4 h-4 rounded-[4px] border-2 shrink-0 grid place-items-center transition-all',
           selected
