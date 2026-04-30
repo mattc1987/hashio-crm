@@ -372,6 +372,15 @@ function handle_(e) {
         break;
       }
 
+      case 'aiBuildEmailTemplate': {
+        // Expert copywriter — builds a single email template with subject,
+        // body, alternatives, and notes on when to use it.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = aiBuildEmailTemplate_(payload);
+        break;
+      }
+
       case 'aiEnrichLead': {
         // Fill missing lead fields (industry, size, likely role, LinkedIn search
         // hint) using whatever the lead already has + Claude's domain knowledge.
@@ -1547,6 +1556,170 @@ function aiSuggestTargets_(payload) {
   try { parsed = JSON.parse(cleaned); }
   catch (e) { /* return empty */ }
   parsed.model = model;
+  return parsed;
+}
+
+
+/* ---------- AI Email Template Builder ---------- */
+/* Expert copywriter persona. Builds a single high-converting email template
+ * with subject, body, alternative subject lines, alternative CTAs, and notes
+ * on when to use it. Knows direct-response copywriting frameworks (AIDA, PAS,
+ * BAB, FAB, StoryBrand) and applies the right one for the use case. */
+
+function aiBuildEmailTemplate_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured.');
+
+  const useCase     = payload.useCase     || 'cold-outreach';
+  const useCaseDetail = payload.useCaseDetail || '';
+  const audience    = payload.audience    || '';
+  const framework   = payload.framework   || 'auto';     // auto / aida / pas / bab / fab / story / question
+  const tone        = payload.tone        || 'direct';   // direct / conversational / witty / formal / story-driven
+  const length      = payload.length      || 'short';    // very-short / short / medium / long
+  const ctaType     = payload.ctaType     || 'auto';     // auto / book-meeting / reply / question / resource / call
+  const voiceSamples = payload.voiceSamples || '';
+  const folder      = payload.folder      || '';
+  const subjectStyle = payload.subjectStyle || 'auto';   // auto / question / curiosity / personalized / short / specific
+
+  const useCaseMap = {
+    'cold-outreach':       'first cold touch — they\'ve never heard from you',
+    'follow-up':           'follow-up to a cold email that hasn\'t replied',
+    'inbound-reply':       'reply to inbound interest (they reached out, lead form, demo request)',
+    'demo-recap':          'post-demo recap with next step',
+    'proposal-send':       'sending a proposal/contract for review',
+    'renewal-outreach':    'renewal reminder for an existing customer',
+    'win-back':            'win-back to a churned or dormant customer',
+    'referral-request':    'asking a happy customer for a referral',
+    'review-request':      'asking for a review / case study / testimonial',
+    'breakup':             'final touch — the breakup email at the end of a sequence',
+    'event-invite':        'invitation to a webinar, dinner, or event',
+    'check-in':            'casual check-in to a warm contact who\'s gone quiet',
+    'introduction':        'making an introduction between two people',
+    'thank-you':           'thank-you note after a meeting or call',
+    'meeting-request':     'asking for a meeting (vs. cold outreach where the ask is softer)',
+    'custom':              useCaseDetail || 'custom use case',
+  };
+  const useCaseDescription = useCaseMap[useCase] || useCaseMap['cold-outreach'];
+
+  const frameworkGuidance = {
+    'auto': 'Pick the framework that fits this use case best. For cold outreach use a personalized question hook. For follow-up use a soft bump. For breakup use permission-to-close.',
+    'aida': 'AIDA — Attention (hook subject + opening line), Interest (specific value relevant to them), Desire (concrete benefit + proof), Action (single clear CTA).',
+    'pas':  'PAS — Problem (name a specific pain they have), Agitation (twist the knife — what does it cost them?), Solution (one-line solution + soft CTA).',
+    'bab':  'BAB — Before (their current state, with empathy), After (the better state), Bridge (how Hashio gets them there). Emotional + concrete.',
+    'fab':  'FAB — Feature (what we do), Advantage (how it works better than alternatives), Benefit (what it means for them). Useful for product-led emails.',
+    'story': 'StoryBrand — they are the hero, you are the guide. Lead with their goal, name the obstacle, position Hashio as the helper that gets them to the win. 1-paragraph mini-story.',
+    'question': 'Question-led — open with a SHORT, specific question that makes them think. The whole email is the question + 1 line of context. Curiosity-first.',
+  };
+
+  const toneGuidance = {
+    'direct':         'No-fluff, value-upfront. Each sentence does work. No throat-clearing. No "I hope this finds you well". No "just checking in".',
+    'conversational': 'Friendly but professional. Short sentences. A touch of personality. Use contractions. Sound like a smart friend.',
+    'witty':          'Clever, with personality. ONE good line of humor (subtle, not goofy). Makes them grin and reply. Risk: don\'t be try-hard.',
+    'formal':         'Professional, polished. Full sentences. No contractions or slang. Think McKinsey email. Use sparingly — most modern B2B prefers conversational.',
+    'story-driven':   'Lead with a 1-2 sentence anecdote (specific, vivid, relatable). Bridge to the ask. Make them feel something before you ask anything.',
+  };
+
+  const lengthGuidance = {
+    'very-short': '1-3 sentences. One ask. Often the highest reply rate for cold.',
+    'short':      '2-4 short paragraphs. 50-100 words. Modern best practice.',
+    'medium':     '4-6 short paragraphs. 100-200 words. Use when you need to establish credibility or share data.',
+    'long':       '6+ paragraphs. Only for warm contacts who want depth (proposal recap, detailed thinking, case studies).',
+  };
+
+  const ctaGuidance = {
+    'auto':         'Pick the right CTA for the use case. Cold = soft (question or short call). Follow-up = same as cold but reference prior. Breakup = "should I close your file?". Demo recap = book-next-meeting.',
+    'book-meeting': 'CTA: book a meeting via the booking link in context. Format: "Worth a 15-min chat next week? [link]" or similar.',
+    'reply':        'CTA: ask for a one-line reply. Format: "Worth a quick call? Just hit reply with a yes or no."',
+    'question':     'CTA: ask a specific question that\'s easy to answer. Should make them think but not require effort. e.g. "How are you tracking cost-per-pound today?"',
+    'resource':     'CTA: offer a relevant resource (case study, guide, calculator). "I put together X — want me to send it over?"',
+    'call':         'CTA: propose a quick phone call. "Mind if I grab 10 min on the phone next Tuesday?"',
+  };
+
+  const subjectGuidance = {
+    'auto':         'Pick the strongest subject for this use case + tone.',
+    'question':     'Subject is a specific question. e.g. "Is cost-per-pound on your radar?" or "{{company}} — quick question?"',
+    'curiosity':    'Open a curiosity gap. Tease without revealing. e.g. "Saw {{company}} on the MED licensing list…" or "About your last harvest…"',
+    'personalized': 'Lead with their first name or company. e.g. "{{firstName}} — quick thought" or "re: {{company}}"',
+    'short':        '1-3 words max. e.g. "Quick question" or "Re: cost per pound"',
+    'specific':     'Reference something specific only-they-know. Mutual contact, recent post, news. e.g. "Saw your post about METRC reporting"',
+  };
+
+  const systemPrompt =
+    'You are a world-class B2B email copywriter — top 1% in the industry. You\'ve studied direct-response copywriting (Ogilvy, Halbert, Sugarman, Joanna Wiebe), modern outbound (Outreach.io playbook, Becc Holland, Josh Braun), and conversational copy (Gong frameworks). You write emails that get 30%+ reply rates because every word does work.\n\n' +
+    'You\'re writing an email template for Matt Campbell at Hashio Inc. — B2B SaaS for licensed cannabis cultivators (compliance, scheduling, yield, cost-per-pound tracking).\n\n' +
+    '## NON-NEGOTIABLES (these break the email if violated)\n' +
+    '1. NEVER use: synergy, leverage, circle back, touch base, just checking in, ping you, low-hanging fruit, moving forward, deep dive, value-add, win-win, reach out, low-risk no-brainer, paradigm shift, game-changer, take this offline, drill down, ducks in a row, bandwidth, swim lanes.\n' +
+    '2. NEVER open with: "I hope this finds you well", "I hope your week is going well", "Hope you\'re doing great", or any wellness check.\n' +
+    '3. NEVER use exclamation points unless something genuinely warrants one (max 1 per email).\n' +
+    '4. NEVER apologize for following up. Persistence is value, not pestering.\n' +
+    '5. ALWAYS sign emails "— Matt" on its own line at the end.\n' +
+    '6. ALWAYS use plain text (not markdown) — output uses \\n for line breaks.\n' +
+    '7. ALWAYS include a single, specific CTA. No double-asks. No "let me know if you have questions" wishy-washy endings.\n' +
+    '8. SUBJECT lines under 60 chars. Often shorter is stronger.\n' +
+    '9. Use merge tags where they add specificity: {{firstName}}, {{lastName}}, {{company}}, {{title}}, {{role}}, {{state}}. Don\'t shoehorn — better to omit a tag than have it look stuffed in.\n' +
+    '10. Cannabis cultivation context: reference real industry pain points when fitting — cost-per-pound, METRC reporting, multi-strain yield variance, harvest scheduling, GMP certification, multi-state expansion, Tier 1-3 licensing, indoor vs greenhouse vs outdoor, regulatory audits, K-12 / employee training, OSHA, state-specific compliance.\n\n' +
+    '## USE CASE\n' +
+    useCaseDescription + (useCaseDetail ? '\nADDITIONAL CONTEXT: ' + useCaseDetail : '') + '\n\n' +
+    '## AUDIENCE\n' +
+    (audience || '(general — use merge tags + adapt body to context)') + '\n\n' +
+    '## FRAMEWORK\n' +
+    (frameworkGuidance[framework] || frameworkGuidance['auto']) + '\n\n' +
+    '## TONE\n' +
+    (toneGuidance[tone] || toneGuidance['direct']) + '\n\n' +
+    '## LENGTH\n' +
+    (lengthGuidance[length] || lengthGuidance['short']) + '\n\n' +
+    '## CTA\n' +
+    (ctaGuidance[ctaType] || ctaGuidance['auto']) + '\n\n' +
+    '## SUBJECT LINE STYLE\n' +
+    (subjectGuidance[subjectStyle] || subjectGuidance['auto']) + '\n\n' +
+    (voiceSamples ? '## MATT\'S VOICE — match these samples\n' + voiceSamples + '\n\n' : '') +
+    '## OUTPUT — STRICT JSON, NO MARKDOWN, NO PREAMBLE\n' +
+    '{\n' +
+    '  "name": "Short, descriptive template name (5-9 words, e.g. \\"Cold outreach — METRC reporting hook\\")",\n' +
+    '  "subject": "Primary subject line",\n' +
+    '  "body": "The full email body. Use \\\\n for line breaks. End with \\"— Matt\\" on its own line.",\n' +
+    '  "alternativeSubjects": ["3 alternative subject lines, ranked best-to-worst"],\n' +
+    '  "alternativeCtas": ["2-3 alternative CTAs (single-sentence each), if a different angle would work"],\n' +
+    '  "useCaseNotes": "1-2 sentences: when to use this template, when NOT to use it, and what makes it work",\n' +
+    '  "framework": "Which framework you actually used (e.g. \\"PAS\\" or \\"question-led\\")",\n' +
+    '  "category": "Suggested folder name (e.g. \\"Cold outreach\\" or \\"Demo follow-up\\") — use existing folder if provided",\n' +
+    '  "mergeTagsUsed": ["{{firstName}}", "{{company}}"]\n' +
+    '}';
+
+  const folderHint = folder ? '\n\nIMPORTANT: This template is being saved to the existing folder "' + folder + '". Set "category" to that folder name verbatim.' : '';
+
+  const userMessage = 'Generate the JSON template. Strict JSON only.' + folderHint;
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'x-api-key': key, 'anthropic-version': ANTHROPIC_API_VERSION_ },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 2500,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (e) {
+    throw new Error('Claude returned malformed JSON: ' + (e && e.message) + '. First 500 chars: ' + cleaned.slice(0, 500));
+  }
+  if (!parsed.subject || !parsed.body) {
+    throw new Error('Claude returned an incomplete template (missing subject or body).');
+  }
+  parsed.model = model;
+  parsed.generatedAt = new Date().toISOString();
   return parsed;
 }
 
