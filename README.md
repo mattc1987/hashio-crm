@@ -13,6 +13,10 @@ Opens at `http://localhost:5173`. Reads your data from the Google Sheet out of t
 
 To enable writes / hosting / team access: see [**SETUP.md**](./SETUP.md).
 
+## Chrome extension
+
+A Gmail-integrated companion lives in [`chrome-ext/`](./chrome-ext/) — log emails, create tasks, manage deals, and run the AI BDR straight from your inbox. See [chrome-ext/README.md](./chrome-ext/README.md) for install instructions.
+
 ## Stack
 
 - **Vite + React 19 + TypeScript** — fast, small, no SSR needed (internal tool).

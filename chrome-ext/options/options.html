@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hashio CRM — Settings</title>
+  <link rel="stylesheet" href="../popup/popup.css" />
+  <style>
+    body { padding: 32px; max-width: 640px; margin: 0 auto; }
+    h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px 0; }
+    .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
+    .field { margin-bottom: 16px; }
+    .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--faint); margin-bottom: 6px; display: block; }
+    .hint { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+    .actions { display: flex; gap: 8px; align-items: center; margin-top: 20px; }
+    .result { margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 12px; line-height: 1.4; }
+    .result.ok { background: rgba(48, 179, 107, 0.10); color: var(--success); }
+    .result.err { background: rgba(239, 76, 76, 0.08); color: var(--danger); }
+    .help { background: var(--surface-2); border-radius: 10px; padding: 16px; margin-top: 24px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+    .help strong { color: var(--body); }
+    .help code { background: var(--surface); padding: 2px 6px; border-radius: 4px; font-family: 'SF Mono', Menlo, monospace; font-size: 11px; }
+    .reveal-toggle { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 11px; margin-left: 6px; }
+  </style>
+</head>
+<body>
+  <h1>✨ Hashio CRM — extension settings</h1>
+  <p class="subtitle">Connect this extension to your Apps Script backend. Same URL + API key the web app uses.</p>
+
+  <div class="field">
+    <label class="label" for="url">Apps Script URL</label>
+    <input type="url" id="url" placeholder="https://script.google.com/macros/s/.../exec" />
+    <div class="hint">The deployed Apps Script URL (ends in <code>/exec</code>). Find this in Apps Script → Deploy → Manage deployments.</div>
+  </div>
+
+  <div class="field">
+    <label class="label" for="key">API Key</label>
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <input type="password" id="key" placeholder="d785ae5a728c4be6808f3a79e71aab95" style="flex: 1;" />
+      <button class="reveal-toggle" id="reveal" type="button">Show</button>
+    </div>
+    <div class="hint">Your Apps Script API key — same one stored as <code>VITE_APPS_SCRIPT_KEY</code> in your <code>.env</code> file.</div>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-primary" id="save">Save & test connection</button>
+    <button class="btn btn-secondary" id="clear">Clear settings</button>
+  </div>
+
+  <div id="result" class="result" style="display: none;"></div>
+
+  <div class="help">
+    <strong>Where do I find these?</strong><br>
+    Both values are already in your Hashio CRM project. Open the file
+    <code>.env</code> in the repo root — copy the <code>VITE_APPS_SCRIPT_URL</code>
+    and <code>VITE_APPS_SCRIPT_KEY</code> values directly. They're already
+    deployed and working with the web app.
+    <br><br>
+    Once saved, click the Hashio CRM icon in your Chrome toolbar while viewing
+    a Gmail email. The popup will show the contact, recent activity, and quick
+    actions (log email, create task, create deal, AI BDR).
+  </div>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

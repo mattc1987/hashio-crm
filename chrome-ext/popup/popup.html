@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Hashio CRM</title>
+  <link rel="stylesheet" href="popup.css" />
+  <style>
+    body { width: 380px; max-height: 600px; overflow-y: auto; }
+    .header {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 10;
+    }
+    .header .logo {
+      width: 22px; height: 22px;
+      background: var(--brand);
+      color: white;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .header .title { font-weight: 600; font-size: 13px; }
+    .header .open-app {
+      margin-left: auto;
+      color: var(--muted);
+      font-size: 11px;
+      text-decoration: none;
+    }
+    .header .open-app:hover { color: var(--body); }
+    .body { padding: 14px; }
+
+    /* States */
+    .empty-state {
+      padding: 32px 14px;
+      text-align: center;
+    }
+    .empty-state .emoji {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+    .empty-state h2 {
+      font-size: 14px;
+      font-weight: 600;
+      margin: 0 0 6px 0;
+    }
+    .empty-state p {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin: 0 0 14px 0;
+    }
+
+    /* Email panel */
+    .email-meta {
+      background: var(--surface-2);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      font-size: 12px;
+    }
+    .email-meta .from {
+      font-weight: 600;
+      color: var(--body);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .email-meta .subject {
+      color: var(--muted);
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+    .email-meta .preview {
+      color: var(--faint);
+      font-size: 11px;
+      margin-top: 6px;
+      line-height: 1.4;
+      max-height: 60px;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+    }
+
+    /* Contact card */
+    .contact-card {
+      padding: 12px;
+      border-radius: var(--radius-md);
+      background: var(--brand-100);
+      border: 1px solid rgba(122, 94, 255, 0.2);
+    }
+    .contact-card.unknown {
+      background: var(--surface-2);
+      border-color: var(--border);
+    }
+    .contact-card .name {
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .contact-card .meta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .contact-card .stats {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .contact-card .stats strong { color: var(--body); }
+
+    /* Action grid */
+    .action-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .action-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .action-btn:hover {
+      border-color: var(--brand);
+      background: var(--surface-2);
+    }
+    .action-btn .icon { font-size: 14px; }
+    .action-btn .label { font-size: 12px; font-weight: 500; }
+    .action-btn .hint { font-size: 10px; color: var(--muted); }
+
+    /* Section heading */
+    .section-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--faint);
+      margin-bottom: 8px;
+    }
+
+    /* Result toast */
+    .toast {
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .toast.ok { background: rgba(48, 179, 107, 0.10); color: var(--success); }
+    .toast.err { background: rgba(239, 76, 76, 0.08); color: var(--danger); }
+
+    /* Inline form drawer (slides over content for create-task / create-deal) */
+    .form-drawer {
+      background: var(--surface);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      padding: 14px;
+    }
+    .form-drawer h3 {
+      margin: 0 0 12px 0;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .form-drawer label {
+      display: block;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--faint);
+      margin-bottom: 4px;
+    }
+    .form-drawer .field { margin-bottom: 10px; }
+    .form-drawer .actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    /* Loading shimmer */
+    .loading {
+      padding: 24px 14px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    /* Search results */
+    .search-results {
+      max-height: 280px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+    .search-result {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .search-result:last-child { border-bottom: none; }
+    .search-result:hover { background: var(--surface-2); }
+    .search-result .title { font-size: 12px; font-weight: 500; }
+    .search-result .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .search-result .kind-badge {
+      float: right;
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--faint);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">H</div>
+    <div class="title">Hashio CRM</div>
+    <a href="https://mattc1987.github.io/hashio-crm/" target="_blank" class="open-app">Open app ↗</a>
+  </div>
+
+  <div id="root" class="body">
+    <div class="loading">
+      <span class="spinner"></span> Loading…
+    </div>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
