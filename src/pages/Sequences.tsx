@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Plus, Search, Zap, ChevronRight, Mail, Clock, GitBranch, Bolt } from 'lucide-react'
+import { Plus, Search, Zap, ChevronRight, Mail, Clock, GitBranch, Bolt, Sparkles } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, Button, Input, PageHeader, Empty, Badge } from '../components/ui'
-import { api } from '../lib/api'
+import { api, hasWriteBackend } from '../lib/api'
 import { enrollmentStats, groupStepsBySequence } from '../lib/sequences'
 import type { Sequence } from '../lib/types'
 import { cn } from '../lib/cn'
+import { SequenceBuilderDrawer } from '../components/sequenceBuilder/SequenceBuilderDrawer'
 
 const STATUS_TONES: Record<Sequence['status'], 'success' | 'warning' | 'neutral' | 'info'> = {
   active: 'success',
@@ -32,6 +33,7 @@ export function Sequences() {
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
+  const [aiBuilderOpen, setAiBuilderOpen] = useState(false)
 
   const data = 'data' in state ? state.data : undefined
   const sequences = data?.sequences ?? []
@@ -102,10 +104,28 @@ export function Sequences() {
         title="Sequences"
         subtitle={`${sequences.length} total · ${enrollments.filter((e) => e.status === 'active').length} active enrollments`}
         action={
-          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
-            New sequence
-          </Button>
+          <div className="flex items-center gap-2">
+            {hasWriteBackend() && (
+              <Button
+                variant="primary"
+                icon={<Sparkles size={14} />}
+                onClick={() => setAiBuilderOpen(true)}
+                title="Build a multi-touch sequence with AI — branching response trees, voice-matched copy, multi-channel"
+              >
+                Build with AI
+              </Button>
+            )}
+            <Button icon={<Plus size={14} />} onClick={() => setCreating(true)}>
+              New sequence
+            </Button>
+          </div>
         }
+      />
+
+      <SequenceBuilderDrawer
+        open={aiBuilderOpen}
+        onClose={() => setAiBuilderOpen(false)}
+        onCreated={() => refresh()}
       />
 
       {creating && (

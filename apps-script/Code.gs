@@ -362,6 +362,16 @@ function handle_(e) {
         break;
       }
 
+      case 'aiBuildSequence': {
+        // AI sequence builder — produces a complete multi-step sequence with
+        // branching response trees from a goal, audience, voice samples, and
+        // channel/cadence preferences.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = aiBuildSequence_(payload);
+        break;
+      }
+
       case 'aiEnrichLead': {
         // Fill missing lead fields (industry, size, likely role, LinkedIn search
         // hint) using whatever the lead already has + Claude's domain knowledge.
@@ -1537,6 +1547,153 @@ function aiSuggestTargets_(payload) {
   try { parsed = JSON.parse(cleaned); }
   catch (e) { /* return empty */ }
   parsed.model = model;
+  return parsed;
+}
+
+
+/* ---------- AI Sequence Builder ---------- */
+/* Generates a complete multi-step outreach sequence with branching response
+ * trees. Designed to produce the kind of sequence a top BDR would build —
+ * multi-channel, persistent, personalized, with smart branching on opens,
+ * clicks, and replies. */
+
+function aiBuildSequence_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured.');
+
+  const goal           = payload.goal           || 'cold-outreach';
+  const goalDetail     = payload.goalDetail     || '';
+  const audience       = payload.audience       || '';
+  const voiceSamples   = payload.voiceSamples   || '';   // pasted prior emails
+  const channels       = payload.channels       || ['email'];   // email/linkedin/sms/phone
+  const cadence        = payload.cadence        || 'standard';  // light/standard/aggressive
+  const enableBranches = payload.enableBranches !== false;
+
+  const cadenceMap = {
+    light:      { touches: '5-6 touches over 2-3 weeks',  spacing: 'D1, D3, D6, D10, D15' },
+    standard:   { touches: '7-9 touches over 3-4 weeks',  spacing: 'D1, D3, D5, D8, D12, D17, D24, D30' },
+    aggressive: { touches: '10-12 touches over 5-6 weeks', spacing: 'D1, D2, D4, D6, D9, D13, D18, D24, D31, D38, D45' },
+  };
+  const cadenceInfo = cadenceMap[cadence] || cadenceMap.standard;
+
+  const goalMap = {
+    'cold-outreach':     'cold outreach to new prospects who don\'t know you yet',
+    'warm-followup':     'follow-up with prospects who engaged (opened, clicked, downloaded) but haven\'t replied',
+    'demo-followup':     'post-demo nurture for prospects who attended a demo and need next-step push',
+    'customer-expansion': 'expansion outreach to existing customers — upsell, cross-sell, more seats',
+    're-engagement':     're-engaging cold/dormant contacts who went silent 60+ days ago',
+    'event-invite':      'invite to a webinar, event, or office hours',
+    'custom':            goalDetail || 'custom goal',
+  };
+  const goalDescription = goalMap[goal] || goalMap['cold-outreach'];
+
+  const channelGuidance = [];
+  if (channels.indexOf('email') >= 0)    channelGuidance.push('email (primary channel — automated send via Gmail)');
+  if (channels.indexOf('linkedin') >= 0) channelGuidance.push('LinkedIn (use action steps with kind="create-task" — Matt sends manually)');
+  if (channels.indexOf('sms') >= 0)      channelGuidance.push('SMS (via Twilio — keep <320 chars, no links unless approved sender)');
+  if (channels.indexOf('phone') >= 0)    channelGuidance.push('phone calls (use action steps with kind="create-task" + script in payload.notes — Matt makes the call)');
+
+  const systemPrompt =
+    'You are the most expert BDR sequence designer in the world, building a multi-touch outreach sequence ' +
+    'for Matt Campbell at Hashio Inc. (B2B SaaS for licensed cannabis cultivators — compliance, scheduling, ' +
+    'yield, cost-per-pound). Your sequences consistently outperform industry benchmarks because you follow ' +
+    'every research-backed best practice:\n\n' +
+    '## CORE PRINCIPLES\n' +
+    '1. PERSISTENCE: Average B2B deal needs 7-12 touches. Sequences that stop at 3 leave money on the table.\n' +
+    '2. MULTI-CHANNEL: Email + LinkedIn + phone outperforms email-only by 3-5x. Mix channels.\n' +
+    '3. FRONT-LOADED CADENCE: Touches close together early, taper out. ' + cadenceInfo.spacing + '\n' +
+    '4. THE 3-BY-3 RULE: Every cold touch references 3 specific facts about the prospect/company.\n' +
+    '5. SHORT BODIES: 2-4 short paragraphs. Single, specific CTA. No "I hope this finds you well" garbage.\n' +
+    '6. CURIOSITY SUBJECT LINES: Short (under 60 chars), specific, no jargon. Often a question.\n' +
+    '7. BREAKUP EMAIL: Final touch should be a "permission to close your file" message. Counter-intuitively gets the highest reply rate of the sequence.\n' +
+    '8. BRANCHING: Different content for opened-vs-not, clicked-vs-not, replied-vs-not. The sequence reacts intelligently.\n' +
+    '9. VOICE: Warm, direct, low-key. NEVER use "synergy", "leverage", "circle back", "touch base", "just checking in", "ping you", "circle around", "moving forward", "low-hanging fruit". Sign emails "— Matt".\n' +
+    '10. DON\'T APOLOGIZE for following up. Persistence is value, not pestering.\n\n' +
+    '## SEQUENCE STRUCTURE TEMPLATE (adapt to the goal)\n' +
+    'For cold outreach with branching:\n' +
+    '  Step 0: D1 intro email (specific value, single CTA)\n' +
+    '  Step 1: Wait 3 days\n' +
+    '  Step 2: Branch — did they reply?\n' +
+    '    [reply]    → exit (replyBehavior:"exit" handles this in the email itself; branch checks for opens/clicks instead)\n' +
+    '  Step 3: Branch — did they open the first email?\n' +
+    '    [opened]   → soft-bump email referencing the open\n' +
+    '    [no-open]  → completely different angle (different stakeholder, different value prop, different format like a question-only email)\n' +
+    '  Step N: LinkedIn task (manual), follow-up emails, etc.\n' +
+    '  Final step: Breakup email — "Should I close your file?"\n\n' +
+    '## OUTPUT SCHEMA — STRICT JSON, NO MARKDOWN, NO PREAMBLE\n' +
+    '{\n' +
+    '  "name": "Short, descriptive sequence name (under 60 chars)",\n' +
+    '  "description": "1-2 sentence summary: who, what, how many touches, what makes it work",\n' +
+    '  "rationale": "1-2 sentences explaining the structural decisions you made",\n' +
+    '  "steps": [\n' +
+    '    {\n' +
+    '      "type": "email" | "sms" | "wait" | "branch" | "action",\n' +
+    '      "label": "Human-readable step label e.g. \\"Day 1 — Intro email\\"",\n' +
+    '      "config": { ... shape varies by type ... }\n' +
+    '    }\n' +
+    '  ]\n' +
+    '}\n\n' +
+    '## CONFIG SHAPES\n' +
+    'EMAIL config:\n' +
+    '  { "subject": "...", "body": "...", "trackOpens": true, "replyBehavior": "exit" }\n' +
+    '  Body supports merge tags: {{firstName}}, {{lastName}}, {{company}}, {{title}}, {{state}}, {{role}}.\n' +
+    '  Body should be plain text with line breaks (use \\n for newlines).\n' +
+    '  Sign every email "— Matt" on its own line.\n' +
+    '  Single CTA per email — booking link, reply prompt, or specific question.\n\n' +
+    'SMS config:\n' +
+    '  { "body": "...", "replyBehavior": "exit" }\n' +
+    '  Under 320 chars. Plain text. Same merge tags.\n\n' +
+    'WAIT config:\n' +
+    '  { "amount": <number>, "unit": "hours"|"days"|"weeks"|"businessDays" }\n\n' +
+    'BRANCH config:\n' +
+    '  { "condition": { "kind": "opened-last"|"clicked-last"|"replied", "withinHours": 72 }, "trueNext": <step idx>, "falseNext": <step idx> }\n' +
+    '  trueNext/falseNext are 0-based indexes into the steps array.\n' +
+    '  Use these to send different content based on engagement signals.\n\n' +
+    'ACTION config:\n' +
+    '  { "kind": "create-task"|"update-contact"|"update-deal-stage"|"notify-owner"|"end-sequence"|"unsubscribe-contact", "payload": {...} }\n' +
+    '  For LinkedIn touches, use kind="create-task" with payload.title="LinkedIn: connect/message {{firstName}}" and payload.notes="<script for Matt>"\n' +
+    '  For phone calls, same: kind="create-task" with payload.title="Call {{firstName}}" and payload.notes="<phone script>"\n\n' +
+    '## ABOUT THIS SEQUENCE\n' +
+    'GOAL: ' + goalDescription + (goalDetail ? '\nADDITIONAL CONTEXT: ' + goalDetail : '') + '\n' +
+    'AUDIENCE: ' + (audience || '(general — adapt subject/body to the merge-tag fields)') + '\n' +
+    'CADENCE: ' + cadenceInfo.touches + '\n' +
+    'CHANNELS TO USE: ' + (channelGuidance.length ? channelGuidance.join(', ') : 'email only') + '\n' +
+    'BRANCHING: ' + (enableBranches ? 'YES — design a branching response tree based on opens/clicks/replies' : 'NO — linear sequence only') + '\n' +
+    (voiceSamples ? '\n## MATT\'S VOICE (study these prior emails to match his tone, sentence patterns, signoffs, and vocabulary)\n' + voiceSamples + '\n' : '') +
+    '\nGenerate the sequence now. Be detailed. Each email should reference specific, plausible value-props for cannabis cultivators (cost-per-pound, harvest scheduling, METRC compliance, multi-strain operations, multi-state expansion, GMP certification, regulatory audits, yield optimization, labor scheduling, etc.). Differentiate each touch — never reuse the same hook twice.';
+
+  const userMessage = 'Generate the JSON sequence definition. Match the schema exactly. Strict JSON only.';
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'x-api-key': key, 'anthropic-version': ANTHROPIC_API_VERSION_ },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 8000,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (e) {
+    throw new Error('Claude returned malformed JSON: ' + (e && e.message) + '. First 500 chars: ' + cleaned.slice(0, 500));
+  }
+  if (!parsed.steps || !Array.isArray(parsed.steps)) {
+    throw new Error('Claude returned a sequence with no steps array.');
+  }
+  parsed.model = model;
+  parsed.generatedAt = new Date().toISOString();
   return parsed;
 }
 
