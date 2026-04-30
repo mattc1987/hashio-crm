@@ -16,6 +16,7 @@ import { cn } from '../lib/cn'
 interface ActivityEvent {
   id: string
   type: 'note' | 'email-sent' | 'email-opened' | 'email-clicked' | 'email-replied'
+        | 'email-inbound' | 'email-outbound-manual'
         | 'task-created' | 'task-completed' | 'booking' | 'enrollment'
         | 'log-call-out' | 'log-call-in' | 'log-voicemail'
         | 'log-text-out' | 'log-text-in'
@@ -211,6 +212,8 @@ function ActivityIcon({ type }: { type: ActivityEvent['type'] }) {
     'email-opened':   { icon: <MailOpen size={11} />,          bg: 'bg-[color:rgba(48,179,107,0.12)]', fg: 'text-[var(--color-success)]' },
     'email-clicked':  { icon: <MousePointerClick size={11} />, bg: 'bg-[color:rgba(59,130,246,0.12)]', fg: 'text-[var(--color-info)]' },
     'email-replied':  { icon: <Reply size={11} />,             bg: 'bg-[color:rgba(122,94,255,0.14)]', fg: 'text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)]' },
+    'email-inbound':  { icon: <Mail size={11} />,              bg: 'bg-[color:rgba(48,179,107,0.14)]', fg: 'text-[var(--color-success)]' },
+    'email-outbound-manual': { icon: <Mail size={11} />,       bg: 'bg-[color:rgba(122,94,255,0.10)]', fg: 'text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)]' },
     'task-created':   { icon: <CheckSquare size={11} />,       bg: 'bg-[var(--surface-3)]',           fg: 'text-muted' },
     'task-completed': { icon: <CheckSquare size={11} />,       bg: 'bg-[color:rgba(48,179,107,0.12)]', fg: 'text-[var(--color-success)]' },
     'booking':        { icon: <Calendar size={11} />,          bg: 'bg-[color:rgba(59,130,246,0.12)]', fg: 'text-[var(--color-info)]' },
@@ -248,6 +251,8 @@ function logKindToEventType(kind: TActivityLog['kind']): ActivityEvent['type'] {
     case 'voicemail':        return 'log-voicemail'
     case 'text-outbound':    return 'log-text-out'
     case 'text-inbound':     return 'log-text-in'
+    case 'email-inbound':    return 'email-inbound'
+    case 'email-outbound':   return 'email-outbound-manual'
     case 'meeting':          return 'log-meeting'
     case 'linkedin-message': return 'log-linkedin'
     case 'other':
@@ -262,6 +267,8 @@ function logTitle(log: TActivityLog): string {
     'voicemail':        'Voicemail',
     'text-outbound':    'Sent text',
     'text-inbound':     'Received text',
+    'email-inbound':    'Inbound email',
+    'email-outbound':   'Outbound email (manual)',
     'meeting':          'Meeting',
     'linkedin-message': 'LinkedIn message',
     'other':            'Logged activity',

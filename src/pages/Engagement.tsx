@@ -35,6 +35,8 @@ export function Engagement() {
   const [checkingReplies, setCheckingReplies] = useState(false)
   const [installingTrigger, setInstallingTrigger] = useState(false)
   const [replyResult, setReplyResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [scanningInbound, setScanningInbound] = useState(false)
+  const [installingInboundTrigger, setInstallingInboundTrigger] = useState(false)
 
   const checkReplies = async () => {
     setCheckingReplies(true)
@@ -52,6 +54,45 @@ export function Engagement() {
       setReplyResult({ ok: false, message: (err as Error).message })
     } finally {
       setCheckingReplies(false)
+    }
+  }
+
+  const scanInboundEmails = async () => {
+    setScanningInbound(true)
+    setReplyResult(null)
+    try {
+      const res = await invokeAction('scanInboundEmails', { daysBack: 30 })
+      if (!res.ok) throw new Error(res.error || 'Failed')
+      const d = (res as { data?: { scanned?: number; logged?: number; skipped?: number; knownContacts?: number } }).data
+      setReplyResult({
+        ok: true,
+        message:
+          `Inbound scan: ${d?.logged ?? 0} new email${d?.logged === 1 ? '' : 's'} logged ` +
+          `(${d?.scanned ?? 0} messages scanned · ${d?.skipped ?? 0} already known · ` +
+          `${d?.knownContacts ?? 0} contacts in lookup).`,
+      })
+      await refresh()
+    } catch (err) {
+      setReplyResult({ ok: false, message: (err as Error).message })
+    } finally {
+      setScanningInbound(false)
+    }
+  }
+
+  const installInboundTrigger = async () => {
+    setInstallingInboundTrigger(true)
+    setReplyResult(null)
+    try {
+      const res = await invokeAction('installInboundEmailTrigger', {})
+      if (!res.ok) throw new Error(res.error || 'Failed')
+      setReplyResult({
+        ok: true,
+        message: 'Auto-scan scheduled — inbound emails from contacts will be logged every hour.',
+      })
+    } catch (err) {
+      setReplyResult({ ok: false, message: (err as Error).message })
+    } finally {
+      setInstallingInboundTrigger(false)
     }
   }
 
@@ -220,31 +261,57 @@ export function Engagement() {
         <LinkedInEngagementCard leads={leads} query={query} setQuery={setQuery} />
       ) : (
       <>
-      {/* Reply-detection toolbar */}
+      {/* Email-detection toolbar — replies + inbound */}
       {hasWriteBackend() && (
         <Card>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[12px] text-muted">
-              Replies are detected from your Gmail thread — run a scan now or schedule auto-checks every 5 min.
-            </span>
-            <Button
-              size="sm"
-              icon={<RefreshCw size={13} />}
-              onClick={checkReplies}
-              disabled={checkingReplies}
-              className="ml-auto"
-            >
-              {checkingReplies ? 'Scanning…' : 'Check for replies now'}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={<CheckCircle2 size={13} />}
-              onClick={installTrigger}
-              disabled={installingTrigger}
-            >
-              {installingTrigger ? 'Installing…' : 'Auto-check every 5 min'}
-            </Button>
+          <div className="flex flex-col gap-3">
+            {/* Reply detection */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[12px] text-muted flex-1 min-w-[200px]">
+                <strong className="text-body">Replies</strong> — to your sequence sends. Run a scan now or auto-check every 5 min.
+              </span>
+              <Button
+                size="sm"
+                icon={<RefreshCw size={13} />}
+                onClick={checkReplies}
+                disabled={checkingReplies}
+              >
+                {checkingReplies ? 'Scanning…' : 'Check for replies now'}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<CheckCircle2 size={13} />}
+                onClick={installTrigger}
+                disabled={installingTrigger}
+              >
+                {installingTrigger ? 'Installing…' : 'Auto-check every 5 min'}
+              </Button>
+            </div>
+
+            {/* Inbound email detection — cold inbound from contacts */}
+            <div className="flex items-center gap-2 flex-wrap pt-3 border-soft-t">
+              <span className="text-[12px] text-muted flex-1 min-w-[200px]">
+                <strong className="text-body">Inbound emails</strong> — when a contact emails you out of the blue (not a reply), log it as activity.
+              </span>
+              <Button
+                size="sm"
+                icon={<RefreshCw size={13} />}
+                onClick={scanInboundEmails}
+                disabled={scanningInbound}
+              >
+                {scanningInbound ? 'Scanning…' : 'Scan inbound now'}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<CheckCircle2 size={13} />}
+                onClick={installInboundTrigger}
+                disabled={installingInboundTrigger}
+              >
+                {installingInboundTrigger ? 'Installing…' : 'Auto-scan hourly'}
+              </Button>
+            </div>
           </div>
           {replyResult && (
             <div

@@ -307,6 +307,7 @@ function mapActivityLogs(rows: Record<string, string>[]): ActivityLog[] {
     occurredAt: r.occurredAt || r.createdAt || '',
     createdAt: r.createdAt || '',
     author: r.author || '',
+    externalId: r.externalId || '',
   }))
 }
 

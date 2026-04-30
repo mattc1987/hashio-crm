@@ -399,6 +399,8 @@ export type ActivityLogKind =
   | 'call-inbound'
   | 'text-outbound'
   | 'text-inbound'
+  | 'email-inbound'      // cold/unprompted email received from contact (not a reply to our sequence)
+  | 'email-outbound'     // ad-hoc outbound email logged manually (sequence sends use EmailSends)
   | 'meeting'
   | 'voicemail'
   | 'linkedin-message'
@@ -429,6 +431,10 @@ export interface ActivityLog {
   /** When the log was created in the CRM. */
   createdAt: string
   author: string
+  /** Optional reference to an external system (e.g. Gmail messageId for
+   *  email-inbound logs). Used to dedupe so re-scanning the inbox doesn't
+   *  create duplicate activity records. */
+  externalId?: string
 }
 
 /* ============================================================

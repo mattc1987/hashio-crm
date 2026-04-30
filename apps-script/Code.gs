@@ -82,7 +82,7 @@ const KNOWN_HEADERS_ = {
   bookingLinks:  ['id','slug','name','description','durationMinutes','workingDays','startHour','endHour','timezone','bufferMinutes','minAdvanceHours','maxAdvanceDays','ownerEmail','ownerName','status','createdAt','updatedAt'],
   bookings:      ['id','bookingLinkId','slug','attendeeName','attendeeEmail','attendeeNotes','slotStart','slotEnd','eventId','status','createdAt'],
   notes:         ['id','entityType','entityId','body','author','createdAt','updatedAt'],
-  activityLogs:  ['id','entityType','entityId','kind','outcome','body','durationMinutes','occurredAt','createdAt','author'],
+  activityLogs:  ['id','entityType','entityId','kind','outcome','body','durationMinutes','occurredAt','createdAt','author','externalId'],
   leads:         ['id','source','externalId','firstName','lastName','email','linkedinUrl','headline','title','companyName','companyLinkedinUrl','companyDomain','companyIndustry','companySize','location','engagementSignals','temperature','score','status','notes','convertedContactId','createdAt','lastSignalAt'],
   smsSends:      ['id','enrollmentId','sequenceId','stepId','contactId','to','from','body','twilioSid','status','errorMessage','sentAt','deliveredAt','repliedAt'],
   proposals:     ['id','ruleId','category','priority','confidence','risk','title','reason','expectedOutcome','actionKind','actionPayload','status','createdAt','resolvedAt','resolvedBy','executedAt','executionResult','contactIds','dealId','companyId'],
@@ -331,6 +331,21 @@ function handle_(e) {
         // own without manual clicks. Idempotent — safely re-runs.
         out.ok = true;
         out.data = installReplyTrigger_();
+        break;
+      }
+
+      case 'scanInboundEmails': {
+        // Scan Gmail inbox for messages from known contacts (cold inbound,
+        // not just replies to our outbound). Logs each as an ActivityLog.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = scanInboundEmails_(payload.daysBack || 14);
+        break;
+      }
+
+      case 'installInboundEmailTrigger': {
+        out.ok = true;
+        out.data = installInboundEmailTrigger_();
         break;
       }
 
@@ -2649,6 +2664,148 @@ function checkReplies() {
   } catch (err) {
     Logger.log('checkReplies error: ' + (err && err.message));
   }
+}
+
+/** Public function the time-trigger fires for inbound-email scanning. */
+function scanInboundEmailsCron() {
+  try {
+    scanInboundEmails_(7); // weekly window for the auto-run
+  } catch (err) {
+    Logger.log('scanInboundEmails error: ' + (err && err.message));
+  }
+}
+
+/** Scan Gmail inbox for messages from known contacts and log each as
+ *  an ActivityLog of kind=email-inbound. Idempotent via Gmail messageId
+ *  stored in ActivityLog.externalId. */
+function scanInboundEmails_(daysBack) {
+  const days = Math.max(1, Math.min(daysBack || 14, 90));
+  const ss = getSpreadsheet_();
+
+  // 1. Build email→contactId lookup from Contacts tab.
+  const contactsSheet = ss.getSheetByName('Contacts');
+  if (!contactsSheet) return { scanned: 0, logged: 0, skipped: 0, knownContacts: 0 };
+  const contactsData = contactsSheet.getDataRange().getValues();
+  if (contactsData.length < 2) return { scanned: 0, logged: 0, skipped: 0, knownContacts: 0 };
+  const cHeaders = contactsData[0].map(String);
+  const emailCol = cHeaders.indexOf('email');
+  const idCol = cHeaders.indexOf('id');
+  if (emailCol < 0 || idCol < 0) return { scanned: 0, logged: 0, skipped: 0, knownContacts: 0 };
+
+  const emailToContactId = {};
+  for (let r = 1; r < contactsData.length; r++) {
+    const email = String(contactsData[r][emailCol] || '').toLowerCase().trim();
+    const id = String(contactsData[r][idCol] || '');
+    if (email && id) emailToContactId[email] = id;
+  }
+  const knownContacts = Object.keys(emailToContactId).length;
+
+  // 2. Build set of already-logged Gmail messageIds (from ActivityLogs.externalId).
+  const logsSheet = ss.getSheetByName('ActivityLogs');
+  const loggedMessageIds = {};
+  if (logsSheet) {
+    const lData = logsSheet.getDataRange().getValues();
+    if (lData.length >= 2) {
+      const lHeaders = lData[0].map(String);
+      const extIdCol = lHeaders.indexOf('externalId');
+      const kindColLog = lHeaders.indexOf('kind');
+      if (extIdCol >= 0 && kindColLog >= 0) {
+        for (let r = 1; r < lData.length; r++) {
+          const k = String(lData[r][kindColLog] || '');
+          if (k === 'email-inbound' || k === 'email-outbound') {
+            const eid = String(lData[r][extIdCol] || '');
+            if (eid) loggedMessageIds[eid] = true;
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Get our own email so we don't log emails we sent.
+  const myEmail = (Session.getActiveUser().getEmail() || '').toLowerCase().trim();
+
+  // 4. Search Gmail inbox for recent messages.
+  // Use is:inbox to skip drafts, sent items, and spam. newer_than:Nd window.
+  const query = 'in:inbox newer_than:' + days + 'd';
+  const threads = GmailApp.search(query, 0, 200); // up to 200 threads per scan
+
+  let scanned = 0;
+  let logged = 0;
+  let skipped = 0;
+
+  for (let t = 0; t < threads.length; t++) {
+    const messages = threads[t].getMessages();
+    for (let m = 0; m < messages.length; m++) {
+      const message = messages[m];
+      scanned++;
+      const messageId = message.getId();
+      if (loggedMessageIds[messageId]) { skipped++; continue; }
+
+      // Parse sender — "Name <email@x.com>" or just "email@x.com"
+      const fromStr = message.getFrom() || '';
+      let senderEmail = '';
+      const angleMatch = fromStr.match(/<([^>]+)>/);
+      if (angleMatch) {
+        senderEmail = angleMatch[1].toLowerCase().trim();
+      } else {
+        const emailMatch = fromStr.match(/([^\s]+@[^\s]+)/);
+        if (emailMatch) senderEmail = emailMatch[1].toLowerCase().trim();
+      }
+      if (!senderEmail) continue;
+
+      // Skip our own outbound (we shouldn't be sender of inbox messages anyway,
+      // but defensive)
+      if (senderEmail === myEmail) continue;
+
+      // Look up contact
+      const contactId = emailToContactId[senderEmail];
+      if (!contactId) continue;
+
+      // Build activity log entry
+      const subject = message.getSubject() || '(no subject)';
+      const plainBody = message.getPlainBody() || '';
+      const bodyPreview = plainBody.replace(/\s+/g, ' ').slice(0, 500);
+      const occurredAt = message.getDate().toISOString();
+
+      const newId = 'al' + Utilities.getUuid().replace(/-/g, '').slice(0, 10);
+      try {
+        writeRow_('activityLogs', 'create', {
+          id: newId,
+          entityType: 'contact',
+          entityId: contactId,
+          kind: 'email-inbound',
+          outcome: '',
+          body: subject + (bodyPreview ? '\n\n' + bodyPreview : ''),
+          durationMinutes: 0,
+          occurredAt: occurredAt,
+          createdAt: new Date().toISOString(),
+          author: senderEmail,
+          externalId: messageId,
+        });
+        loggedMessageIds[messageId] = true;
+        logged++;
+      } catch (err) {
+        Logger.log('Failed to log inbound email ' + messageId + ': ' + (err && err.message));
+      }
+    }
+  }
+
+  return { scanned: scanned, logged: logged, skipped: skipped, knownContacts: knownContacts, daysBack: days };
+}
+
+/** Install hourly time-trigger for inbound-email scanning. */
+function installInboundEmailTrigger_() {
+  const triggers = ScriptApp.getProjectTriggers();
+  let removed = 0;
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'scanInboundEmailsCron') {
+      ScriptApp.deleteTrigger(triggers[i]);
+      removed += 1;
+    }
+  }
+  // Hourly is enough — Gmail isn't real-time anyway.
+  ScriptApp.newTrigger('scanInboundEmailsCron').timeBased().everyHours(1).create();
+  return { installed: true, removed: removed, intervalMinutes: 60 };
 }
 
 /** Install a 5-minute time-driven trigger to auto-run checkReplies.
