@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Mail, Phone, MapPin, Building2, Link2, Pencil,
-  Briefcase, Zap, Sparkles, Wand2, MessageSquare,
+  Briefcase, Zap, Sparkles, Wand2, MessageSquare, AlertTriangle,
+  Trash2, Search as SearchIcon, Settings,
 } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, CardHeader, Avatar, Badge, PageHeader, Empty, Button } from '../components/ui'
@@ -51,7 +52,13 @@ export function ContactDetail() {
   const activeEnrollments = data.enrollments.filter(
     (e) => e.contactId === contact.id && e.status === 'active',
   )
-  const tags = parseTags(contact.tags)
+  const allTags = parseTags(contact.tags)
+  // Visible tags exclude the ai-* meta tags — those render as a dedicated
+  // flag callout below the header instead.
+  const tags = allTags.filter((t) => !t.startsWith('ai-'))
+  const aiFlagTypes = allTags.filter((t) => t.startsWith('ai-flag-') && t !== 'ai-flag-mismatch')
+  const aiRecommendation = allTags.find((t) => t.startsWith('ai-rec-'))?.replace('ai-rec-', '') as 'delete' | 'research' | 'fix' | 'keep' | undefined
+  const isFlagged = allTags.includes('ai-flag-mismatch')
   const fullName = `${contact.firstName} ${contact.lastName}`.trim() || contact.email
 
   const enroll = async (sequenceId: string) => {
@@ -292,6 +299,24 @@ export function ContactDetail() {
         </Card>
       )}
 
+      {/* AI Flag callout — clean replacement for the raw ai-* tag pills */}
+      {isFlagged && (
+        <FlagCallout
+          recommendation={aiRecommendation}
+          flagTypes={aiFlagTypes}
+          onClear={async () => {
+            const cleaned = allTags.filter((t) => !t.startsWith('ai-')).join(', ')
+            await api.contact.update({ id: contact.id, tags: cleaned })
+            refresh()
+          }}
+          onDelete={async () => {
+            if (!confirm(`Delete ${fullName}? This can't be undone.`)) return
+            await api.contact.remove(contact.id)
+            navigate('/contacts')
+          }}
+        />
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Open deals" value={contactDeals.filter((d) => !d.stage.startsWith('Closed')).length.toString()} />
@@ -374,6 +399,103 @@ function StatCard({ label, value }: { label: string; value: string }) {
     <Card>
       <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">{label}</div>
       <div className="font-display text-[20px] font-semibold tabular text-body mt-1">{value}</div>
+    </Card>
+  )
+}
+
+// ============================================================
+// FlagCallout — clean summary of AI flags (replaces raw tag pills)
+// ============================================================
+
+const FLAG_TYPE_LABELS: Record<string, string> = {
+  'ai-flag-no-reply-email': 'Automated/no-reply email',
+  'ai-flag-test-data': 'Looks like test/placeholder data',
+  'ai-flag-invalid-email': 'Invalid email format',
+  'ai-flag-title-is-company-name': 'Title looks like a company name (wrong column?)',
+  'ai-flag-title-is-email': 'Title contains an email (wrong column?)',
+  'ai-flag-title-is-phone': 'Title looks like a phone number (wrong column?)',
+  'ai-flag-admin-email-with-person': 'Shared admin inbox attached to a person',
+  'ai-flag-personal-email-senior-title': 'Personal email at a senior corporate title',
+  'ai-flag-email-domain-typo': 'Email domain looks like a typo',
+  'ai-flag-phone-too-short': 'Phone number too short',
+  'ai-flag-phone-fake-pattern': 'Phone matches a fake/placeholder pattern',
+  'ai-flag-duplicate-email': 'Duplicate of an earlier contact (same email)',
+  'ai-flag-duplicate-name-company': 'Duplicate of an earlier contact (same name + company)',
+  'ai-flag-no-name-no-title': 'No name and no title — orphan contact info',
+  'ai-flag-no-contact-info': 'No email and no phone',
+}
+
+function FlagCallout({
+  recommendation,
+  flagTypes,
+  onClear,
+  onDelete,
+}: {
+  recommendation?: 'delete' | 'research' | 'fix' | 'keep'
+  flagTypes: string[]
+  onClear: () => void
+  onDelete: () => void
+}) {
+  const isDelete = recommendation === 'delete'
+  const isFix = recommendation === 'fix'
+  const tone = isDelete ? 'danger' : isFix ? 'warning' : 'warning'
+  const bg = isDelete
+    ? 'bg-[color:rgba(239,76,76,0.06)] border-[color:rgba(239,76,76,0.25)]'
+    : 'bg-[color:rgba(245,165,36,0.08)] border-[color:rgba(245,165,36,0.3)]'
+  const fg = isDelete ? 'text-[var(--color-danger)]' : 'text-[var(--color-warning)]'
+  const recIcon = isDelete ? <Trash2 size={13} /> : isFix ? <Settings size={13} /> : <SearchIcon size={13} />
+  const recLabel = isDelete ? 'Recommend delete' : isFix ? 'Recommend fix' : 'Recommend research'
+
+  return (
+    <Card className={cn('border', bg)}>
+      <div className="flex items-start gap-3">
+        <div className={cn('w-8 h-8 rounded-full grid place-items-center shrink-0', fg)}>
+          <AlertTriangle size={16} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className="font-display font-semibold text-[14px] text-body">AI flagged this contact</span>
+            <Badge tone={tone === 'danger' ? 'danger' : 'warning'}>
+              <span className="inline-flex items-center gap-1">
+                {recIcon} {recLabel}
+              </span>
+            </Badge>
+          </div>
+          {flagTypes.length > 0 && (
+            <ul className="text-[12px] text-body space-y-0.5 mt-1.5">
+              {flagTypes.map((ft) => (
+                <li key={ft} className="flex items-start gap-1.5">
+                  <span className="text-[var(--text-faint)] mt-0.5">•</span>
+                  <span>{FLAG_TYPE_LABELS[ft] || ft.replace(/^ai-flag-/, '').replace(/-/g, ' ')}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="text-[11px] text-muted mt-2">
+            See the activity feed below for the full Quality Scan note.
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5 shrink-0">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onClear}
+            title="Remove the AI flag tags from this contact (keeps the contact)"
+          >
+            Clear flag
+          </Button>
+          {isDelete && (
+            <Button
+              size="sm"
+              variant="danger"
+              icon={<Trash2 size={12} />}
+              onClick={onDelete}
+            >
+              Delete contact
+            </Button>
+          )}
+        </div>
+      </div>
     </Card>
   )
 }
