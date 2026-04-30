@@ -255,14 +255,36 @@ function ConfigureStep({
           {GOAL_OPTIONS.map((g) => (
             <button
               key={g.value}
+              type="button"
               onClick={() => setGoal(g.value)}
               className={cn(
-                'text-left surface border-soft rounded-[var(--radius-md)] p-3 transition-all hover:border-[var(--color-brand-500)]',
-                goal === g.value && 'border-[var(--color-brand-500)] bg-[color:rgba(122,94,255,0.06)]',
+                'relative text-left surface border-2 rounded-[var(--radius-md)] p-3 transition-all hover:border-[var(--color-brand-500)]',
+                goal === g.value
+                  ? 'border-[var(--color-brand-600)] bg-[color:rgba(122,94,255,0.10)] shadow-soft-sm'
+                  : 'border-[var(--border)]',
               )}
             >
-              <div className="font-medium text-[13px] text-body">{g.label}</div>
-              <div className="text-[11px] text-muted mt-0.5">{g.hint}</div>
+              <div className="flex items-start gap-2">
+                <div className={cn(
+                  'w-4 h-4 rounded-full border-2 grid place-items-center shrink-0 mt-0.5 transition-all',
+                  goal === g.value
+                    ? 'bg-[var(--color-brand-600)] border-[var(--color-brand-600)]'
+                    : 'border-[var(--border-strong)]',
+                )}>
+                  {goal === g.value && (
+                    <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className={cn(
+                    'font-medium text-[13px]',
+                    goal === g.value ? 'text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)]' : 'text-body',
+                  )}>
+                    {g.label}
+                  </div>
+                  <div className="text-[11px] text-muted mt-0.5">{g.hint}</div>
+                </div>
+              </div>
             </button>
           ))}
         </div>
@@ -307,10 +329,13 @@ function ConfigureStep({
             return (
               <button
                 key={c.value}
+                type="button"
                 onClick={() => toggleChannel(c.value)}
                 className={cn(
-                  'flex items-center gap-3 surface border-soft rounded-[var(--radius-md)] p-2.5 text-left transition-all',
-                  checked && 'border-[var(--color-brand-500)] bg-[color:rgba(122,94,255,0.05)]',
+                  'flex items-center gap-3 surface border-2 rounded-[var(--radius-md)] p-2.5 text-left transition-all',
+                  checked
+                    ? 'border-[var(--color-brand-600)] bg-[color:rgba(122,94,255,0.08)]'
+                    : 'border-[var(--border)] hover:border-[var(--color-brand-500)]',
                 )}
               >
                 <div className={cn(
@@ -340,13 +365,21 @@ function ConfigureStep({
           {CADENCE_OPTIONS.map((c) => (
             <button
               key={c.value}
+              type="button"
               onClick={() => setCadence(c.value)}
               className={cn(
-                'text-left surface border-soft rounded-[var(--radius-md)] p-3 transition-all hover:border-[var(--color-brand-500)]',
-                cadence === c.value && 'border-[var(--color-brand-500)] bg-[color:rgba(122,94,255,0.06)]',
+                'text-left surface border-2 rounded-[var(--radius-md)] p-3 transition-all hover:border-[var(--color-brand-500)]',
+                cadence === c.value
+                  ? 'border-[var(--color-brand-600)] bg-[color:rgba(122,94,255,0.10)] shadow-soft-sm'
+                  : 'border-[var(--border)]',
               )}
             >
-              <div className="font-medium text-[13px] text-body">{c.label}</div>
+              <div className={cn(
+                'font-medium text-[13px]',
+                cadence === c.value ? 'text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)]' : 'text-body',
+              )}>
+                {c.label}
+              </div>
               <div className="text-[11px] text-muted mt-0.5">{c.hint}</div>
             </button>
           ))}
