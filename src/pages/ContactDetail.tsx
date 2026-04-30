@@ -176,12 +176,40 @@ export function ContactDetail() {
                   if (!contact.role && enr.role) patch.role = enr.role
                   if (!contact.title && enr.title) patch.title = enr.title
                   if (!contact.linkedinUrl && enr.linkedinSearchUrl) patch.linkedinUrl = enr.linkedinSearchUrl
+
+                  // Quality flag — add tags
+                  if (enr.flagged) {
+                    const existingTags = parseTags(contact.tags)
+                    const flagTag = 'ai-flag-mismatch'
+                    const recTag = enr.recommendation ? `ai-rec-${enr.recommendation}` : ''
+                    const newTags = Array.from(new Set([
+                      ...existingTags,
+                      flagTag,
+                      ...(recTag ? [recTag] : []),
+                    ]))
+                    patch.tags = newTags.join(', ')
+                    // Write the flag reason as a Note record (separate table)
+                    try {
+                      await api.note.create({
+                        entityType: 'contact',
+                        entityId: contact.id,
+                        body: `[AI flag] ${enr.flagReason || 'mismatch detected'} (rec: ${enr.recommendation || 'review'})`,
+                        author: 'AI BDR',
+                        createdAt: new Date().toISOString(),
+                      })
+                    } catch { /* non-fatal */ }
+                  }
+
                   const fields = Object.keys(patch).filter((k) => k !== 'id').length
                   if (fields === 0) {
-                    setEnrichMsg({ ok: true, text: 'Already enriched — no empty fields to fill.' })
+                    setEnrichMsg({ ok: true, text: `Already enriched, no flags. (${enr.confidence}% conf)` })
                   } else {
                     await api.contact.update(patch)
-                    setEnrichMsg({ ok: true, text: `Filled ${fields} field${fields === 1 ? '' : 's'} (${enr.confidence}% conf). ${enr.notes || ''}` })
+                    const flagSuffix = enr.flagged ? ` ⚠️ Flagged: ${enr.flagReason}` : ''
+                    setEnrichMsg({
+                      ok: true,
+                      text: `Updated (${enr.confidence}% conf). ${enr.notes || ''}${flagSuffix}`,
+                    })
                     refresh()
                   }
                 } catch (err) {

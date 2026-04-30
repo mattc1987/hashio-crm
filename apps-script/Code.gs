@@ -1487,28 +1487,42 @@ function aiEnrichContact_(payload) {
   const contact = payload.contact || {};
 
   const systemPrompt =
-    'You enrich Contact records for Matt Campbell\'s CRM at Hashio Inc. (B2B SaaS for cannabis cultivators). ' +
-    'Given a Contact, infer the missing fields. Be honest — if you can\'t infer, leave empty.\n\n' +
-    'CRITICAL — Role categorization:\n' +
-    'Map the contact\'s `title` (job title) to one of these standard roles: ' + CONTACT_ROLE_OPTIONS_.join(', ') + '.\n' +
-    '- Founder / CEO / President / COO / CFO / Owner → Executive\n' +
-    '- Director of Operations / Ops Manager / VP Ops / General Manager → Operations\n' +
-    '- Head Grower / Master Grower / Director of Cultivation / Cultivation Manager / Lead Cultivator → Cultivation\n' +
-    '- Compliance Manager / Quality Manager / QA Director → Compliance (or Quality if QA-specific)\n' +
-    '- CFO / Controller / Bookkeeper / Accountant / Finance Director → Finance\n' +
-    '- Sales Director / BD Manager / Account Executive / Wholesale Manager → Sales\n' +
-    '- Marketing Manager / Brand Director / Content / CMO → Marketing\n' +
-    '- Buyer / Procurement Manager / Purchasing → Procurement\n' +
-    '- IT / Technology / Systems → IT / Tech\n' +
-    '- HR / People Ops / Recruiting → HR / People\n' +
-    '- Legal / General Counsel → Legal\n' +
-    '- If ambiguous or none fit, return Other (or empty if you have no idea).\n\n' +
-    'Return STRICT JSON only:\n' +
+    'You are the smartest, most skeptical BDR enrichment system for Matt Campbell\'s CRM at Hashio Inc. ' +
+    '(B2B SaaS for cannabis cultivators). You do TWO jobs at once:\n\n' +
+    '1) ENRICH — fill missing fields you can confidently infer.\n' +
+    '2) FLAG — detect obvious data-quality mismatches that suggest the record is junk.\n\n' +
+    '— ENRICH —\n' +
+    'Map `title` to a standard role: ' + CONTACT_ROLE_OPTIONS_.join(', ') + '.\n' +
+    '- Founder/CEO/President/COO/CFO/Owner → Executive\n' +
+    '- Director of Operations/Ops Manager/General Manager → Operations\n' +
+    '- Head Grower/Master Grower/Cultivation Director → Cultivation\n' +
+    '- Compliance/QA → Compliance (or Quality if QA-specific)\n' +
+    '- CFO/Controller/Bookkeeper → Finance\n' +
+    '- Sales/BD/AE/Wholesale → Sales\n' +
+    '- Marketing/Brand/CMO → Marketing\n' +
+    '- Buyer/Procurement → Procurement\n' +
+    '- Ambiguous → Other. Truly unknown → empty.\n\n' +
+    '— FLAG (be CONFIDENT, not wishy-washy) —\n' +
+    'Set `flagged: true` and `flagReason` if any of these mismatches apply:\n' +
+    '- Generic admin/role-based email (info@, contact@, hello@, sales@, support@, admin@, office@, team@, hi@) ' +
+    'paired with a SPECIFIC PERSON title (CEO, Founder, Director, Manager, etc). These are SHARED INBOXES, not people. FLAG them.\n' +
+    '- Email domain doesn\'t plausibly match the company (e.g. ceo@gmail.com claiming to be at "Acme Cultivation Inc"). ' +
+    'Founders sometimes use personal emails — only flag if the title is very senior AND the domain is generic (gmail/yahoo/hotmail/outlook).\n' +
+    '- "Test", "demo", "example", "noreply", "no-reply" anywhere in name/email/title → FLAG.\n' +
+    '- Title looks pasted-in-wrong (e.g. "John Smith" with title "Acme Inc"; or title="Cultivator" at a software company).\n' +
+    '- Same email, same first name and last name as a clearly different person\'s record (cross-check best you can with the data given).\n' +
+    '- Missing both name AND title (just an email floating around).\n\n' +
+    'When you flag: write a CRISP one-line flagReason like "info@ email with CEO title — likely shared inbox, recommend deletion or research" or ' +
+    '"Personal Gmail at corporate — verify if founder or scrape error".\n\n' +
+    'Return STRICT JSON only — no markdown:\n' +
     '{\n' +
-    '  "role": "one of the standard roles, or empty",\n' +
-    '  "title": "best-guess title if missing, else empty (do NOT overwrite if title is provided)",\n' +
-    '  "linkedinSearchUrl": "linkedin.com/search URL guess if name+company present, else empty",\n' +
-    '  "notes": "1 short sentence of context",\n' +
+    '  "role": "standard role or empty",\n' +
+    '  "title": "best-guess title if missing, else empty (do NOT overwrite if provided)",\n' +
+    '  "linkedinSearchUrl": "linkedin.com/search URL guess, else empty",\n' +
+    '  "notes": "1 short sentence of useful context",\n' +
+    '  "flagged": true | false,\n' +
+    '  "flagReason": "one-line reason if flagged, else empty",\n' +
+    '  "recommendation": "keep" | "research" | "delete" (if flagged, what to do; else empty),\n' +
     '  "confidence": 0-100\n' +
     '}';
 
@@ -1548,26 +1562,42 @@ function aiEnrichContactsBulk_(payload) {
   if (contacts.length === 0) return { results: [] };
 
   const systemPrompt =
-    'You categorize a batch of CRM contacts by their functional role for Matt at Hashio Inc. ' +
-    'Map each contact\'s `title` to ONE of: ' + CONTACT_ROLE_OPTIONS_.join(', ') + '.\n\n' +
-    'Mapping guidance:\n' +
-    '- Founder/CEO/President/COO/CFO/Owner → Executive\n' +
-    '- Director of Operations/Ops Manager/General Manager → Operations\n' +
-    '- Head Grower/Master Grower/Cultivation Director → Cultivation\n' +
-    '- Compliance Manager/QA → Compliance or Quality\n' +
-    '- CFO/Controller/Bookkeeper → Finance\n' +
-    '- Sales/BD/AE → Sales\n' +
-    '- Marketing/Brand/CMO → Marketing\n' +
-    '- Buyer/Procurement → Procurement\n' +
-    '- If ambiguous → Other. If you literally cannot guess, return empty role.\n\n' +
+    'You are the smartest, most skeptical BDR enrichment system for Matt Campbell\'s CRM at Hashio Inc. ' +
+    '(B2B SaaS for cannabis cultivators). For each contact in this batch, you do TWO jobs:\n\n' +
+    '1) CATEGORIZE — map their `title` to ONE of: ' + CONTACT_ROLE_OPTIONS_.join(', ') + '.\n' +
+    '   - Founder/CEO/President/COO/CFO/Owner → Executive\n' +
+    '   - Director of Operations/Ops Manager/General Manager → Operations\n' +
+    '   - Head Grower/Master Grower/Cultivation Director → Cultivation\n' +
+    '   - Compliance/QA → Compliance or Quality\n' +
+    '   - CFO/Controller/Bookkeeper → Finance\n' +
+    '   - Sales/BD/AE/Wholesale → Sales\n' +
+    '   - Marketing/Brand/CMO → Marketing\n' +
+    '   - Buyer/Procurement → Procurement\n' +
+    '   - Ambiguous → Other. Unknown → empty role.\n\n' +
+    '2) FLAG mismatches — be CONFIDENT, not wishy-washy.\n' +
+    'Set `flagged: true` and `flagReason` if ANY of these apply:\n' +
+    ' - Generic admin/role email (info@, contact@, hello@, sales@, support@, admin@, office@, team@, hi@) ' +
+    'paired with a specific person\'s title (CEO, Founder, Director, etc). These are SHARED INBOXES, not people.\n' +
+    ' - Personal email (gmail/yahoo/hotmail/outlook) at a senior corporate title — could be founder, but worth verifying.\n' +
+    ' - "Test", "demo", "example", "noreply" in name/email/title.\n' +
+    ' - Title looks like a company name (e.g. title="Acme Inc").\n' +
+    ' - Missing both name AND title — just an email floating around.\n\n' +
+    'flagReason should be ONE crisp line. recommendation should be "keep" / "research" / "delete".\n\n' +
     'Return STRICT JSON only:\n' +
     '{\n' +
-    '  "results": [ { "id": "contact-id", "role": "Operations", "confidence": 0-100 } ]\n' +
+    '  "results": [ {\n' +
+    '    "id": "contact-id",\n' +
+    '    "role": "Operations",\n' +
+    '    "flagged": true | false,\n' +
+    '    "flagReason": "one-line reason if flagged, else empty",\n' +
+    '    "recommendation": "keep" | "research" | "delete" | "",\n' +
+    '    "confidence": 0-100\n' +
+    '  } ]\n' +
     '}';
 
-  const userMessage = 'Contacts to categorize (' + contacts.length + ' total):\n' +
+  const userMessage = 'Contacts to categorize + flag (' + contacts.length + ' total):\n' +
     JSON.stringify(contacts.map(function (c) {
-      return { id: c.id, title: c.title || '', role: c.role || '' };
+      return { id: c.id, firstName: c.firstName || '', lastName: c.lastName || '', email: c.email || '', title: c.title || '', company: c.company || '', role: c.role || '' };
     }), null, 2);
 
   const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {

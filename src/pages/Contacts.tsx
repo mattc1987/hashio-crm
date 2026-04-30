@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Mail, Phone, MessageSquare, Users, ChevronRight, MapPin, Link2, Zap, X, Trash2 } from 'lucide-react'
+import { Plus, Mail, Phone, MessageSquare, Users, ChevronRight, MapPin, Link2, Zap, X, Trash2, AlertTriangle } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, Button, PageHeader, Empty, Avatar, Badge } from '../components/ui'
 import { ContactEditor } from '../components/editors/ContactEditor'
@@ -110,28 +110,71 @@ export function Contacts() {
     // Process in chunks of 50 (Apps Script bulk endpoint cap)
     const chunks: typeof targets[] = []
     for (let i = 0; i < targets.length; i += 50) chunks.push(targets.slice(i, i + 50))
-    let totalUpdated = 0
+    let rolesFilled = 0
+    let flaggedDelete = 0
+    let flaggedResearch = 0
+    let flaggedOther = 0
     let totalFailed = 0
+    if (data) void data // type narrowing
     for (const chunk of chunks) {
       try {
-        const res = await enrichContactsBulk(chunk)
+        const res = await enrichContactsBulk(chunk, data || undefined)
         for (const r of res.results) {
           const c = contacts.find((x) => x.id === r.id)
           if (!c) continue
-          if (r.role && !c.role) {
+          const patch: Record<string, unknown> = { id: r.id }
+          let touched = false
+          if (r.role && !c.role) { patch.role = r.role; touched = true; rolesFilled++ }
+          if (r.flagged) {
+            // Add ai-flag-mismatch tag + a recommendation tag (keep/research/delete)
+            const existingTags = parseTags(c.tags)
+            const flagTag = 'ai-flag-mismatch'
+            const recTag = r.recommendation ? `ai-rec-${r.recommendation}` : ''
+            const newTags = Array.from(new Set([
+              ...existingTags,
+              flagTag,
+              ...(recTag ? [recTag] : []),
+            ]))
+            patch.tags = newTags.join(', ')
+            touched = true
+            if (r.recommendation === 'delete') flaggedDelete++
+            else if (r.recommendation === 'research') flaggedResearch++
+            else flaggedOther++
+            // Write flag reason as a Note (separate table)
             try {
-              await api.contact.update({ id: r.id, role: r.role })
-              totalUpdated++
+              await api.note.create({
+                entityType: 'contact',
+                entityId: r.id,
+                body: `[AI flag] ${r.flagReason || 'mismatch detected'} (rec: ${r.recommendation || 'review'})`,
+                author: 'AI BDR',
+                createdAt: new Date().toISOString(),
+              })
+            } catch { /* non-fatal */ }
+          }
+          if (touched) {
+            try {
+              await api.contact.update(patch)
             } catch {
               totalFailed++
             }
           }
         }
-      } catch (err) {
+      } catch {
         totalFailed += chunk.length
       }
     }
-    alert(`AI enrich done: ${totalUpdated} role${totalUpdated === 1 ? '' : 's'} filled, ${totalFailed} failed.`)
+    const flagTotal = flaggedDelete + flaggedResearch + flaggedOther
+    const lines = [`Roles filled: ${rolesFilled}`]
+    if (flagTotal > 0) {
+      lines.push(`Flagged for review: ${flagTotal}`)
+      if (flaggedDelete) lines.push(`  • Recommended delete: ${flaggedDelete}`)
+      if (flaggedResearch) lines.push(`  • Recommended research: ${flaggedResearch}`)
+      if (flaggedOther) lines.push(`  • Other: ${flaggedOther}`)
+      lines.push('')
+      lines.push('Filter to "AI flagged for review" to see them.')
+    }
+    if (totalFailed) lines.push(`Failed: ${totalFailed}`)
+    alert(lines.join('\n'))
     refresh()
   }
 
@@ -273,9 +316,25 @@ function ContactRow({
           <div className="text-[13px] font-medium text-body truncate">
             {contact.firstName} {contact.lastName}
           </div>
+          {tags.includes('ai-flag-mismatch') && (
+            <span
+              className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-[color:rgba(245,165,36,0.18)] text-[var(--color-warning)]"
+              title="AI flagged this record as a possible mismatch — open contact to see why"
+            >
+              <AlertTriangle size={10} /> AI flag
+            </span>
+          )}
+          {tags.includes('ai-rec-delete') && (
+            <span
+              className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-[color:rgba(239,76,76,0.12)] text-[var(--color-danger)]"
+              title="AI recommends deleting this contact"
+            >
+              delete?
+            </span>
+          )}
           {contact.status === 'Customer' && <Badge tone="success">Customer</Badge>}
           {contact.status && contact.status !== 'Customer' && <Badge tone="neutral">{contact.status}</Badge>}
-          {tags.slice(0, 3).map((t) => (
+          {tags.filter((t) => !t.startsWith('ai-')).slice(0, 3).map((t) => (
             <span
               key={t}
               className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-[color:rgba(122,94,255,0.1)] text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)]"
@@ -283,7 +342,7 @@ function ContactRow({
               #{t}
             </span>
           ))}
-          {tags.length > 3 && <span className="text-[10px] text-muted">+{tags.length - 3}</span>}
+          {tags.filter((t) => !t.startsWith('ai-')).length > 3 && <span className="text-[10px] text-muted">+{tags.filter((t) => !t.startsWith('ai-')).length - 3}</span>}
         </div>
         <div className="text-[11px] text-muted truncate mt-0.5">
           {contact.title || <em>No title</em>}

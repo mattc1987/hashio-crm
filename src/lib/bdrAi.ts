@@ -599,6 +599,9 @@ export interface ContactEnrichment {
   title: string
   linkedinSearchUrl: string
   notes: string
+  flagged: boolean
+  flagReason: string
+  recommendation: 'keep' | 'research' | 'delete' | ''
   confidence: number
   model: string
 }
@@ -620,17 +623,31 @@ export async function enrichContact(contact: Contact, data: SheetData): Promise<
 }
 
 export interface BulkEnrichResult {
-  results: Array<{ id: string; role: string; confidence: number }>
+  results: Array<{
+    id: string
+    role: string
+    flagged: boolean
+    flagReason: string
+    recommendation: 'keep' | 'research' | 'delete' | ''
+    confidence: number
+  }>
   model: string
 }
 
-export async function enrichContactsBulk(contacts: Contact[]): Promise<BulkEnrichResult> {
+export async function enrichContactsBulk(contacts: Contact[], data?: SheetData): Promise<BulkEnrichResult> {
   return call<BulkEnrichResult>('aiEnrichContactsBulk', {
-    contacts: contacts.map((c) => ({
-      id: c.id,
-      title: c.title,
-      role: c.role,
-    })),
+    contacts: contacts.map((c) => {
+      const company = data && c.companyId ? data.companies.find((co) => co.id === c.companyId)?.name : ''
+      return {
+        id: c.id,
+        firstName: c.firstName,
+        lastName: c.lastName,
+        email: c.email,
+        title: c.title,
+        role: c.role,
+        company: company || '',
+      }
+    }),
   })
 }
 

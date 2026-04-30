@@ -299,18 +299,28 @@ export interface SavedView {
 }
 
 export function loadSavedViews(): SavedView[] {
+  // Always start with the latest presets so new ones surface even for users
+  // who already had saved-views in localStorage. Then append user customs
+  // (filtering out any preset duplicates or stale presets from prior versions).
+  let custom: SavedView[] = []
   try {
     const raw = localStorage.getItem(VIEWS_KEY)
-    if (!raw) return DEFAULT_VIEWS
-    const parsed = JSON.parse(raw) as SavedView[]
-    return Array.isArray(parsed) ? parsed : DEFAULT_VIEWS
+    if (raw) {
+      const parsed = JSON.parse(raw) as SavedView[]
+      if (Array.isArray(parsed)) {
+        custom = parsed.filter((v) => !v.id.startsWith('preset-'))
+      }
+    }
   } catch {
-    return DEFAULT_VIEWS
+    /* fall through */
   }
+  return [...DEFAULT_VIEWS, ...custom]
 }
 
 export function saveSavedViews(views: SavedView[]): void {
-  localStorage.setItem(VIEWS_KEY, JSON.stringify(views))
+  // Persist only user customs — presets are always pulled fresh in loadSavedViews
+  const customsOnly = views.filter((v) => !v.id.startsWith('preset-'))
+  localStorage.setItem(VIEWS_KEY, JSON.stringify(customsOnly))
   window.dispatchEvent(new CustomEvent('hashio-contact-views-change'))
 }
 
@@ -327,11 +337,24 @@ export function addSavedView(name: string, state: ContactFilterState): SavedView
 }
 
 export function removeSavedView(id: string): void {
+  if (id.startsWith('preset-')) return // can't delete presets
   saveSavedViews(loadSavedViews().filter((v) => v.id !== id))
 }
 
 // Useful starter views
 const DEFAULT_VIEWS: SavedView[] = [
+  {
+    id: 'preset-flagged',
+    name: '🚩 AI flagged for review',
+    state: { ...EMPTY_FILTER, tags: ['ai-flag-mismatch'] },
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'preset-rec-delete',
+    name: '🗑 AI: recommend delete',
+    state: { ...EMPTY_FILTER, tags: ['ai-rec-delete'] },
+    createdAt: new Date().toISOString(),
+  },
   {
     id: 'preset-customers',
     name: 'Customers (MRR)',
