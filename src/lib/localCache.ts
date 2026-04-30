@@ -98,6 +98,25 @@ export function recordCreate(entity: Entity, payload: Record<string, unknown>): 
   return row
 }
 
+/** Bulk variant of recordCreate — one localStorage read + one write + one
+ *  event dispatch for many rows. Massive perf win during CSV imports
+ *  (avoids 200 cascading re-renders per batch). Returns rows with ids. */
+export function recordCreateMany(entity: Entity, payloads: Record<string, unknown>[]): Row[] {
+  if (payloads.length === 0) return []
+  const s = read()
+  s.creates = s.creates || {}
+  const existing = s.creates[entity] || []
+  const ts = new Date().toISOString()
+  const rows: Row[] = payloads.map((payload) => ({
+    id: (payload.id as string) || localId(entity),
+    createdAt: (payload.createdAt as string) || ts,
+    ...payload,
+  })) as Row[]
+  s.creates[entity] = [...existing, ...rows]
+  write(s)
+  return rows
+}
+
 /** Record an update (partial patch) against an id. */
 export function recordUpdate(entity: Entity, id: string, patch: Record<string, unknown>) {
   const s = read()

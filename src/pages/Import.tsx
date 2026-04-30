@@ -4,7 +4,7 @@ import { Upload, CheckCircle2, AlertTriangle, ArrowRight, ArrowLeft, X } from 'l
 import { Card, CardHeader, Button, PageHeader, Badge, Select } from '../components/ui'
 import { cn } from '../lib/cn'
 import { api, invokeAction } from '../lib/api'
-import { recordCreate, localId } from '../lib/localCache'
+import { recordCreateMany, localId } from '../lib/localCache'
 import { useSheetData } from '../lib/sheet-context'
 
 type Entity = 'companies' | 'contacts' | 'deals' | 'tasks'
@@ -229,14 +229,17 @@ export function Import() {
       if (cancelRef.current) break
       const batch = preparedRows.slice(i, i + BATCH_SIZE)
 
-      // Optimistically record in local cache so the UI sees them immediately
-      // even before Apps Script finishes the write.
-      const provisional = batch.map((row) => {
-        const id = (row.id as string) || localId(entity)
-        const withId = { ...row, id, createdAt: (row.createdAt as string) || new Date().toISOString() }
-        recordCreate(entity, withId)
-        return withId
-      })
+      // Optimistically record in local cache (BATCHED — one storage write +
+      // one event for the whole batch instead of 200, avoids cascading
+      // re-renders that turn the bulk write into per-row speed).
+      const ts = new Date().toISOString()
+      const withIds = batch.map((row) => ({
+        ...row,
+        id: (row.id as string) || localId(entity),
+        createdAt: (row.createdAt as string) || ts,
+      }))
+      recordCreateMany(entity, withIds)
+      const provisional = withIds
 
       if (useBulk) {
         try {
