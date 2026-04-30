@@ -63,14 +63,6 @@ export function Dashboard() {
       <PageHeader
         title="Dashboard"
         subtitle="Your Hashio business at a glance."
-        action={
-          <a
-            href="tel:4177192722"
-            className="inline-flex items-center justify-center font-medium transition-all whitespace-nowrap select-none bg-[var(--color-brand-600)] text-white hover:bg-[var(--color-brand-700)] active:bg-[var(--color-brand-800)] shadow-soft-sm h-9 px-4 text-[13px] rounded-[var(--radius-md)] gap-2"
-          >
-            📞 Call
-          </a>
-        }
       />
 
       {/* AI BDR daily briefing — Claude reads everything + tells Matt what matters today */}

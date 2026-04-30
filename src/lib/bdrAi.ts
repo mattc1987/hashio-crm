@@ -168,6 +168,7 @@ function inferGoal(hint: string): string {
 export type NextMoveAction =
   | 'send-email'
   | 'send-sms'
+  | 'make-call'
   | 'create-task'
   | 'log-activity'
   | 'update-deal'

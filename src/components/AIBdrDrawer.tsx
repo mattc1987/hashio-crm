@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react'
 import {
-  Sparkles, Mail, MessageSquare, CheckSquare, Briefcase, UserPlus,
+  Sparkles, Mail, MessageSquare, Phone, CheckSquare, Briefcase, UserPlus,
   Pause, Clock, AlertCircle, Send, Loader2, Wand2,
 } from 'lucide-react'
 import { Drawer } from './Drawer'
@@ -101,7 +101,24 @@ export function AIBdrDrawer({ open, onClose, entity, data, goal, onApplied }: Pr
 
   const isEmail = suggestion?.recommendedAction === 'send-email'
   const isSms = suggestion?.recommendedAction === 'send-sms'
+  const isCall = suggestion?.recommendedAction === 'make-call'
   const isTask = suggestion?.recommendedAction === 'create-task'
+
+  // Resolve phone for make-call: from entity if it's a contact, else look up
+  const callPhone = (() => {
+    if (!isCall || !entity) return ''
+    if (entity.kind === 'contact') return entity.contact.phone
+    if (entity.kind === 'task') {
+      const c = entity.task.contactId ? data.contacts.find((x) => x.id === entity.task.contactId) : null
+      return c?.phone || ''
+    }
+    if (entity.kind === 'deal') {
+      const c = entity.deal.contactId ? data.contacts.find((x) => x.id === entity.deal.contactId) : null
+      return c?.phone || ''
+    }
+    if (entity.kind === 'lead') return ''
+    return ''
+  })()
 
   return (
     <Drawer
@@ -207,6 +224,36 @@ export function AIBdrDrawer({ open, onClose, entity, data, goal, onApplied }: Pr
               <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] font-semibold mb-1">SMS draft</div>
               <Textarea value={editedBody} onChange={(e) => setEditedBody(e.target.value)} rows={4} className="text-[12px]" />
               <div className="text-[10px] text-muted text-right">{editedBody.length}/320 chars · {Math.ceil(editedBody.length / 160) || 1} segment(s)</div>
+            </div>
+          )}
+
+          {/* Drafted phone script — for make-call action */}
+          {isCall && (
+            <div className="surface-2 rounded-[var(--radius-md)] p-3 flex flex-col gap-2 border border-[color:rgba(59,130,246,0.2)]">
+              <div className="flex items-center gap-1.5">
+                <Phone size={12} className="text-[var(--color-info)]" />
+                <span className="text-[10px] uppercase tracking-wider text-[var(--color-info)] font-semibold">
+                  Phone script — read it as a guide, not verbatim
+                </span>
+              </div>
+              <Textarea
+                value={editedBody}
+                onChange={(e) => setEditedBody(e.target.value)}
+                rows={8}
+                className="text-[12px] font-mono"
+              />
+              {callPhone && (
+                <a
+                  href={`tel:${callPhone}`}
+                  className="inline-flex items-center justify-center gap-2 h-9 px-4 text-[13px] rounded-[var(--radius-md)] font-medium bg-[var(--color-info)] text-white hover:brightness-95"
+                  title={`Dial ${callPhone}`}
+                >
+                  <Phone size={13} /> Dial {callPhone}
+                </a>
+              )}
+              {!callPhone && (
+                <div className="text-[11px] text-muted">No phone number on file — add one to make this dial-able.</div>
+              )}
             </div>
           )}
 
@@ -321,6 +368,33 @@ async function applyAction(
       })
       if (!taskRes.ok) throw new Error(taskRes.error || 'Task create failed')
       return 'SMS handoff task created (pending Twilio toll-free verification).'
+    }
+
+    case 'make-call': {
+      // Claude can't dial — but it drafts a phone script. We create a
+      // call-prep task with the script in the notes, plus log an activity
+      // so the contact's history shows "AI suggested calling".
+      const contact = contactId ? data.contacts.find((c) => c.id === contactId) : null
+      const phone = contact?.phone || ''
+      const taskRes = await api.task.create({
+        title: 'Call: ' + (s.taskTitle || (contact ? `${contact.firstName} ${contact.lastName}` : 'contact')),
+        dueDate: new Date().toISOString(),
+        priority: 'high',
+        contactId: contactId || '',
+        dealId: dealId || '',
+        notes:
+          (phone ? `📞 ${phone}\n\n` : '') +
+          '--- AI-DRAFTED PHONE SCRIPT ---\n' +
+          (body || s.draftedBody) +
+          '\n--- END SCRIPT ---\n\n' +
+          'Reasoning: ' + s.reasoning,
+        status: 'open',
+        createdAt: new Date().toISOString(),
+      })
+      if (!taskRes.ok) throw new Error(taskRes.error || 'Task create failed')
+      return phone
+        ? `Call task created with script. Tap the contact's phone icon to dial ${phone}.`
+        : 'Call task created with script. (No phone number on this contact — add one to dial.)'
     }
 
     case 'create-task': {
@@ -464,6 +538,7 @@ function actionIcon(a: NextMoveAction) {
   switch (a) {
     case 'send-email': return <Mail {...props} />
     case 'send-sms': return <MessageSquare {...props} />
+    case 'make-call': return <Phone {...props} />
     case 'create-task': return <CheckSquare {...props} />
     case 'log-activity': return <Send {...props} />
     case 'update-deal': return <Briefcase {...props} />
@@ -478,6 +553,7 @@ function actionLabel(a: NextMoveAction): string {
   switch (a) {
     case 'send-email': return 'Send email'
     case 'send-sms': return 'Send SMS'
+    case 'make-call': return 'Call them'
     case 'create-task': return 'Create task'
     case 'log-activity': return 'Log activity'
     case 'update-deal': return 'Update deal'
@@ -492,6 +568,7 @@ function applyButtonLabel(a: NextMoveAction): string {
   switch (a) {
     case 'send-email': return 'Send email'
     case 'send-sms': return 'Create SMS task'
+    case 'make-call': return 'Save script + call'
     case 'create-task': return 'Create task'
     case 'log-activity': return 'Log it'
     case 'update-deal': return 'Create update task'

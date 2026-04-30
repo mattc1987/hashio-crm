@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Mail, Phone, Users, ChevronRight, MapPin, Link2, Zap, X, Trash2 } from 'lucide-react'
+import { Plus, Mail, Phone, MessageSquare, Users, ChevronRight, MapPin, Link2, Zap, X, Trash2 } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, Button, PageHeader, Empty, Avatar, Badge } from '../components/ui'
 import { ContactEditor } from '../components/editors/ContactEditor'
@@ -12,6 +12,7 @@ import { applyContactFilter, EMPTY_FILTER, type ContactFilterState } from '../li
 import { enrichContactsBulk } from '../lib/bdrAi'
 import { Sparkles } from 'lucide-react'
 import { hasWriteBackend } from '../lib/api'
+import { AIBdrDrawer } from '../components/AIBdrDrawer'
 
 export function Contacts() {
   const { state, refresh } = useSheetData()
@@ -19,6 +20,7 @@ export function Contacts() {
   const [creating, setCreating] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [enrollFor, setEnrollFor] = useState<string | null>(null) // contact id for single-enroll popover
+  const [aiContact, setAiContact] = useState<Contact | null>(null) // contact for AI BDR drawer
 
   const data = 'data' in state ? state.data : undefined
   const contacts = data?.contacts ?? []
@@ -177,6 +179,7 @@ export function Contacts() {
                 sequences={sequences}
                 onPickSequence={(seqId) => enrollOne(c.id, seqId)}
                 onClosePopover={() => setEnrollFor(null)}
+                onAi={hasWriteBackend() ? () => setAiContact(c) : undefined}
               />
             ))}
           </div>
@@ -204,6 +207,15 @@ export function Contacts() {
         onClose={() => setCreating(false)}
         onSaved={() => { refresh() }}
       />
+
+      <AIBdrDrawer
+        open={!!aiContact}
+        onClose={() => setAiContact(null)}
+        entity={aiContact ? { kind: 'contact', contact: aiContact } : null}
+        data={data}
+        goal="What's the best next move with this contact? They might benefit from an email, SMS, or phone call. Look at their history and recommend one concrete action — draft any message that's needed."
+        onApplied={() => { setAiContact(null); refresh() }}
+      />
     </div>
   )
 }
@@ -213,6 +225,7 @@ function ContactRow({
   selected, onToggleSelect,
   onEnrollClick, showEnrollPopover,
   sequences, onPickSequence, onClosePopover,
+  onAi,
 }: {
   contact: Contact
   company?: Company
@@ -223,6 +236,7 @@ function ContactRow({
   sequences: Sequence[]
   onPickSequence: (sequenceId: string) => void
   onClosePopover: () => void
+  onAi?: () => void
 }) {
   const tags = parseTags(contact.tags)
   return (
@@ -290,32 +304,54 @@ function ContactRow({
           )}
         </div>
       </div>
-      <div className="hidden md:flex items-center gap-3 text-[11px] text-muted">
-        {contact.linkedinUrl && (
-          <a
-            href={contact.linkedinUrl}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="inline-flex items-center gap-1 hover:text-[#0a66c2]"
-            title="LinkedIn"
-          >
-            <Link2 size={12} />
-          </a>
-        )}
-        {contact.email && (
-          <a href={`mailto:${contact.email}`} className="inline-flex items-center gap-1 hover:text-body max-w-[220px] truncate">
-            <Mail size={11} /> {contact.email}
-          </a>
-        )}
-        {contact.phone && (
-          <a href={`tel:${contact.phone}`} className="inline-flex items-center gap-1 hover:text-body">
-            <Phone size={11} /> {contact.phone}
-          </a>
-        )}
-      </div>
       <ChevronRight size={15} className="text-[var(--text-faint)] group-hover:text-body transition-colors" />
       </Link>
+
+      {/* Quick actions — outside Link so clicks don't navigate */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        {contact.email && (
+          <ActionIcon
+            href={`mailto:${contact.email}`}
+            icon={<Mail size={13} />}
+            title={`Email ${contact.email}`}
+            tone="brand"
+          />
+        )}
+        {contact.phone && (
+          <>
+            <ActionIcon
+              href={`sms:${contact.phone}`}
+              icon={<MessageSquare size={13} />}
+              title={`Text ${contact.phone}`}
+              tone="success"
+            />
+            <ActionIcon
+              href={`tel:${contact.phone}`}
+              icon={<Phone size={13} />}
+              title={`Call ${contact.phone}`}
+              tone="info"
+            />
+          </>
+        )}
+        {contact.linkedinUrl && (
+          <ActionIcon
+            href={contact.linkedinUrl}
+            target="_blank"
+            icon={<Link2 size={13} />}
+            title="LinkedIn"
+            tone="info"
+          />
+        )}
+        {onAi && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onAi() }}
+            className="w-7 h-7 rounded-[var(--radius-sm)] grid place-items-center text-[var(--text-faint)] hover:text-[var(--color-brand-600)] hover:bg-[color:rgba(122,94,255,0.1)] transition-colors"
+            title="Ask AI BDR for the next move"
+          >
+            <Sparkles size={13} />
+          </button>
+        )}
+      </div>
 
       {/* Inline enroll-in-sequence button + popover */}
       <div className="relative shrink-0">
@@ -451,4 +487,38 @@ function BulkActionBar({
 export function parseTags(raw: string): string[] {
   if (!raw) return []
   return raw.split(/[,|]+/).map((t) => t.trim()).filter(Boolean)
+}
+
+// Quick-action icon button for contact rows. tel:, sms:, mailto: links work
+// natively on mobile (and Mac via FaceTime / Messages).
+function ActionIcon({
+  href, target, icon, title, tone,
+}: {
+  href: string
+  target?: string
+  icon: React.ReactNode
+  title: string
+  tone: 'brand' | 'success' | 'info' | 'warning'
+}) {
+  const toneClasses: Record<string, string> = {
+    brand:   'hover:text-[var(--color-brand-600)] hover:bg-[color:rgba(122,94,255,0.1)]',
+    success: 'hover:text-[var(--color-success)] hover:bg-[color:rgba(48,179,107,0.1)]',
+    info:    'hover:text-[var(--color-info)] hover:bg-[color:rgba(59,130,246,0.1)]',
+    warning: 'hover:text-[var(--color-warning)] hover:bg-[color:rgba(245,165,36,0.12)]',
+  }
+  return (
+    <a
+      href={href}
+      target={target}
+      rel={target === '_blank' ? 'noreferrer' : undefined}
+      onClick={(e) => e.stopPropagation()}
+      className={cn(
+        'w-7 h-7 rounded-[var(--radius-sm)] grid place-items-center text-[var(--text-faint)] transition-colors',
+        toneClasses[tone],
+      )}
+      title={title}
+    >
+      {icon}
+    </a>
+  )
 }

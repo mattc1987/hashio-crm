@@ -1215,15 +1215,16 @@ function aiSuggestNextMove_(payload) {
     'YOU MUST RETURN STRICT JSON — no markdown, no preamble, no code fences. Schema:\n' +
     '{\n' +
     '  "narrative": "1-2 sentence read on the situation in plain English",\n' +
-    '  "recommendedAction": "send-email" | "send-sms" | "create-task" | "log-activity" | "update-deal" | "create-deal" | "convert-lead" | "wait" | "pause",\n' +
+    '  "recommendedAction": "send-email" | "send-sms" | "make-call" | "create-task" | "log-activity" | "update-deal" | "create-deal" | "convert-lead" | "wait" | "pause",\n' +
     '  "reasoning": "Why this action, citing specific data points (1-2 sentences)",\n' +
     '  "draftedSubject": "subject if email, otherwise empty string",\n' +
-    '  "draftedBody": "message body if email/sms, otherwise empty string",\n' +
+    '  "draftedBody": "if email/sms: the message body. If make-call: a 3-5 bullet phone script (line-broken with \\n) that Matt reads off — opener, key questions, value-prop, ask-for-the-meeting. Else empty.",\n' +
     '  "taskTitle": "if recommendedAction is create-task, the task title",\n' +
     '  "taskNotes": "if create-task, what to do specifically",\n' +
     '  "alternativeActions": ["1-2 short strings describing other options Matt could take instead"],\n' +
     '  "confidence": 0-100\n' +
-    '}\n';
+    '}\n' +
+    'CALL GUIDANCE: pick make-call when the contact has a phone number, the situation is high-stakes (replied recently, hot lead, big deal stalled), and a written message is too cold. Voice-first when you have signal that they want a real conversation.\n';
 
   const extraInstruction = payload.instruction || '';
   const userMessage = 'GOAL: ' + (goal || 'Suggest the single best next move.') + '\n\n' +

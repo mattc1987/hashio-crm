@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Mail, Phone, MapPin, Building2, Link2, Pencil,
-  Briefcase, Zap, Sparkles, Wand2,
+  Briefcase, Zap, Sparkles, Wand2, MessageSquare,
 } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, CardHeader, Avatar, Badge, PageHeader, Empty, Button } from '../components/ui'
@@ -136,6 +136,24 @@ export function ContactDetail() {
           </div>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
+          {contact.phone && (
+            <>
+              <a
+                href={`tel:${contact.phone}`}
+                className="inline-flex items-center justify-center font-medium transition-all whitespace-nowrap select-none surface border-soft text-body hover:surface-2 active:surface-3 shadow-soft-xs h-9 px-4 text-[13px] rounded-[var(--radius-md)] gap-2"
+                title={`Call ${contact.phone}`}
+              >
+                <Phone size={13} /> Call
+              </a>
+              <a
+                href={`sms:${contact.phone}`}
+                className="inline-flex items-center justify-center font-medium transition-all whitespace-nowrap select-none surface border-soft text-body hover:surface-2 active:surface-3 shadow-soft-xs h-9 px-4 text-[13px] rounded-[var(--radius-md)] gap-2"
+                title={`Text ${contact.phone}`}
+              >
+                <MessageSquare size={13} /> Text
+              </a>
+            </>
+          )}
           {hasWriteBackend() && (
             <Button
               variant="primary"
