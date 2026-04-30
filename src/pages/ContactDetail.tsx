@@ -84,9 +84,9 @@ export function ContactDetail() {
         <ArrowLeft size={12} /> All contacts
       </Link>
 
-      {/* Header */}
-      <div className="flex items-start gap-4 flex-wrap">
-        <Avatar firstName={contact.firstName} lastName={contact.lastName} size={64} className="text-[22px]" />
+      {/* Header — name + meta info, full width (no buttons squeezing it) */}
+      <div className="flex items-start gap-4">
+        <Avatar firstName={contact.firstName} lastName={contact.lastName} size={64} className="text-[22px] shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h1 className="font-display text-[22px] font-semibold text-body tracking-tight">
@@ -143,6 +143,10 @@ export function ContactDetail() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Action buttons — separate row so they don't squeeze the meta column */}
+      <div>
         <div className="flex items-center gap-1.5 flex-wrap">
           {(() => {
             const tel = telUrl(contact.phone)
