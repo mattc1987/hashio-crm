@@ -67,7 +67,7 @@ const TABS = {
  *  tries to write that's not listed here still gets auto-appended. */
 const KNOWN_HEADERS_ = {
   companies:     ['id','name','industry','licenseCount','size','website','address','notes','createdAt','updatedAt'],
-  contacts:      ['id','firstName','lastName','email','phone','title','companyId','status','state','linkedinUrl','tags','createdAt'],
+  contacts:      ['id','firstName','lastName','email','phone','title','role','companyId','status','state','linkedinUrl','tags','createdAt'],
   deals:         ['id','title','contactId','companyId','value','stage','probability','closeDate','mrr','billingCycle','billingMonth','contractStart','contractEnd','mrrStatus','notes','createdAt','updatedAt'],
   tasks:         ['id','title','dueDate','priority','contactId','dealId','notes','status','createdAt','updatedAt'],
   activity:      ['id','type','text','icon','createdAt'],
@@ -348,6 +348,23 @@ function handle_(e) {
         const payload = safeJson_(params.payload) || {};
         out.ok = true;
         out.data = aiEnrichLead_(payload);
+        break;
+      }
+
+      case 'aiEnrichContact': {
+        // Infer missing contact fields (most importantly: role from title).
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = aiEnrichContact_(payload);
+        break;
+      }
+
+      case 'aiEnrichContactsBulk': {
+        // Bulk enrichment for many contacts at once — reduces token cost vs
+        // one call per contact.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = aiEnrichContactsBulk_(payload);
         break;
       }
 
@@ -1453,6 +1470,128 @@ function aiEnrichLead_(payload) {
   parsed.model = model;
   return parsed;
 }
+
+/* ---------- AI Contact enrichment — infer role from title etc ---------- */
+const CONTACT_ROLE_OPTIONS_ = [
+  'Executive', 'Operations', 'Cultivation', 'Compliance', 'Finance',
+  'Sales', 'Marketing', 'Procurement', 'IT / Tech', 'HR / People',
+  'Legal', 'Quality', 'Other',
+];
+
+function aiEnrichContact_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured.');
+
+  const contact = payload.contact || {};
+
+  const systemPrompt =
+    'You enrich Contact records for Matt Campbell\'s CRM at Hashio Inc. (B2B SaaS for cannabis cultivators). ' +
+    'Given a Contact, infer the missing fields. Be honest — if you can\'t infer, leave empty.\n\n' +
+    'CRITICAL — Role categorization:\n' +
+    'Map the contact\'s `title` (job title) to one of these standard roles: ' + CONTACT_ROLE_OPTIONS_.join(', ') + '.\n' +
+    '- Founder / CEO / President / COO / CFO / Owner → Executive\n' +
+    '- Director of Operations / Ops Manager / VP Ops / General Manager → Operations\n' +
+    '- Head Grower / Master Grower / Director of Cultivation / Cultivation Manager / Lead Cultivator → Cultivation\n' +
+    '- Compliance Manager / Quality Manager / QA Director → Compliance (or Quality if QA-specific)\n' +
+    '- CFO / Controller / Bookkeeper / Accountant / Finance Director → Finance\n' +
+    '- Sales Director / BD Manager / Account Executive / Wholesale Manager → Sales\n' +
+    '- Marketing Manager / Brand Director / Content / CMO → Marketing\n' +
+    '- Buyer / Procurement Manager / Purchasing → Procurement\n' +
+    '- IT / Technology / Systems → IT / Tech\n' +
+    '- HR / People Ops / Recruiting → HR / People\n' +
+    '- Legal / General Counsel → Legal\n' +
+    '- If ambiguous or none fit, return Other (or empty if you have no idea).\n\n' +
+    'Return STRICT JSON only:\n' +
+    '{\n' +
+    '  "role": "one of the standard roles, or empty",\n' +
+    '  "title": "best-guess title if missing, else empty (do NOT overwrite if title is provided)",\n' +
+    '  "linkedinSearchUrl": "linkedin.com/search URL guess if name+company present, else empty",\n' +
+    '  "notes": "1 short sentence of context",\n' +
+    '  "confidence": 0-100\n' +
+    '}';
+
+  const userMessage = 'Contact to enrich:\n' + JSON.stringify(contact, null, 2);
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'x-api-key': key, 'anthropic-version': ANTHROPIC_API_VERSION_ },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 400,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  let parsed = {};
+  try { parsed = JSON.parse(cleaned); } catch (e) { parsed = {}; }
+  parsed.model = model;
+  return parsed;
+}
+
+/** Bulk enrichment — one Claude call to process up to 50 contacts.
+ *  Returns map of contactId → { role, confidence }. */
+function aiEnrichContactsBulk_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured.');
+
+  const contacts = (payload.contacts || []).slice(0, 50);
+  if (contacts.length === 0) return { results: [] };
+
+  const systemPrompt =
+    'You categorize a batch of CRM contacts by their functional role for Matt at Hashio Inc. ' +
+    'Map each contact\'s `title` to ONE of: ' + CONTACT_ROLE_OPTIONS_.join(', ') + '.\n\n' +
+    'Mapping guidance:\n' +
+    '- Founder/CEO/President/COO/CFO/Owner → Executive\n' +
+    '- Director of Operations/Ops Manager/General Manager → Operations\n' +
+    '- Head Grower/Master Grower/Cultivation Director → Cultivation\n' +
+    '- Compliance Manager/QA → Compliance or Quality\n' +
+    '- CFO/Controller/Bookkeeper → Finance\n' +
+    '- Sales/BD/AE → Sales\n' +
+    '- Marketing/Brand/CMO → Marketing\n' +
+    '- Buyer/Procurement → Procurement\n' +
+    '- If ambiguous → Other. If you literally cannot guess, return empty role.\n\n' +
+    'Return STRICT JSON only:\n' +
+    '{\n' +
+    '  "results": [ { "id": "contact-id", "role": "Operations", "confidence": 0-100 } ]\n' +
+    '}';
+
+  const userMessage = 'Contacts to categorize (' + contacts.length + ' total):\n' +
+    JSON.stringify(contacts.map(function (c) {
+      return { id: c.id, title: c.title || '', role: c.role || '' };
+    }), null, 2);
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'x-api-key': key, 'anthropic-version': ANTHROPIC_API_VERSION_ },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 4000,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  let parsed = { results: [] };
+  try { parsed = JSON.parse(cleaned); } catch (e) { /* return empty */ }
+  parsed.model = model;
+  return parsed;
+}
+
 
 /* ---------- AI Strategist — free-form proposals beyond rules ---------- */
 function aiStrategistProposals_(payload) {

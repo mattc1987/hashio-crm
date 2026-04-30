@@ -225,7 +225,7 @@ function TemplateEditor({
 
 const DEMO_CONTACT = {
   id: '', firstName: 'Jane', lastName: 'Doe', email: 'jane@acme.com',
-  phone: '', title: 'Ops Director', companyId: '', status: 'Customer',
+  phone: '', title: 'Ops Director', role: 'Operations', companyId: '', status: 'Customer',
   state: 'CO', linkedinUrl: '', tags: '', createdAt: '',
 }
 const DEMO_COMPANY = {

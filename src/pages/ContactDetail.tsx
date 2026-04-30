@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Mail, Phone, MapPin, Building2, Link2, Pencil,
-  Briefcase, Zap, Sparkles,
+  Briefcase, Zap, Sparkles, Wand2,
 } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, CardHeader, Avatar, Badge, PageHeader, Empty, Button } from '../components/ui'
@@ -12,6 +12,7 @@ import { ContactEditor } from '../components/editors/ContactEditor'
 import { LogActivityDrawer } from '../components/editors/LogActivityDrawer'
 import { AIBdrDrawer } from '../components/AIBdrDrawer'
 import { api, hasWriteBackend } from '../lib/api'
+import { enrichContact } from '../lib/bdrAi'
 import { date, currency, monthlyMRR } from '../lib/format'
 import type { Sequence } from '../lib/types'
 import { cn } from '../lib/cn'
@@ -25,6 +26,8 @@ export function ContactDetail() {
   const [logging, setLogging] = useState(false)
   const [enrollOpen, setEnrollOpen] = useState(false)
   const [aiOpen, setAiOpen] = useState(false)
+  const [enriching, setEnriching] = useState(false)
+  const [enrichMsg, setEnrichMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   const data = 'data' in state ? state.data : undefined
   if (!data) return <PageHeader title="Contact" />
@@ -94,6 +97,7 @@ export function ContactDetail() {
           </div>
           <div className="text-[13px] text-muted flex items-center flex-wrap gap-x-3 gap-y-1">
             {contact.title && <span>{contact.title}</span>}
+            {contact.role && <Badge tone="brand">{contact.role}</Badge>}
             {company && (
               <Link to={`/companies/${company.id}`} className="hover:text-body inline-flex items-center gap-1">
                 <Building2 size={12} />
@@ -141,6 +145,38 @@ export function ContactDetail() {
               AI BDR
             </Button>
           )}
+          {hasWriteBackend() && (
+            <Button
+              icon={<Wand2 size={13} />}
+              disabled={enriching}
+              onClick={async () => {
+                setEnriching(true)
+                setEnrichMsg(null)
+                try {
+                  const enr = await enrichContact(contact, data)
+                  const patch: Record<string, unknown> = { id: contact.id }
+                  if (!contact.role && enr.role) patch.role = enr.role
+                  if (!contact.title && enr.title) patch.title = enr.title
+                  if (!contact.linkedinUrl && enr.linkedinSearchUrl) patch.linkedinUrl = enr.linkedinSearchUrl
+                  const fields = Object.keys(patch).filter((k) => k !== 'id').length
+                  if (fields === 0) {
+                    setEnrichMsg({ ok: true, text: 'Already enriched — no empty fields to fill.' })
+                  } else {
+                    await api.contact.update(patch)
+                    setEnrichMsg({ ok: true, text: `Filled ${fields} field${fields === 1 ? '' : 's'} (${enr.confidence}% conf). ${enr.notes || ''}` })
+                    refresh()
+                  }
+                } catch (err) {
+                  setEnrichMsg({ ok: false, text: (err as Error).message })
+                } finally {
+                  setEnriching(false)
+                }
+              }}
+              title="AI fills empty fields (especially Role from Title)"
+            >
+              {enriching ? 'Enriching…' : 'AI enrich'}
+            </Button>
+          )}
           <Button icon={<Phone size={13} />} onClick={() => setLogging(true)}>Log activity</Button>
           <div className="relative">
             <Button
@@ -172,6 +208,11 @@ export function ContactDetail() {
           </div>
           <Button icon={<Pencil size={13} />} onClick={() => setEditing(true)}>Edit</Button>
         </div>
+        {enrichMsg && (
+          <div className={`mt-2 text-[11px] ${enrichMsg.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}`}>
+            {enrichMsg.text}
+          </div>
+        )}
       </div>
 
       {/* Active enrollments banner */}

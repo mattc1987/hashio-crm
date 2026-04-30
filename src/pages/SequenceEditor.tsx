@@ -924,6 +924,7 @@ const DEMO_CONTACT = {
   email: 'jane@acme.com',
   phone: '',
   title: 'Ops Director',
+  role: 'Operations',
   companyId: '',
   status: 'Customer',
   state: 'CO',

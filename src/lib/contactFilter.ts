@@ -27,6 +27,7 @@ export interface ContactFilterState {
   tags: string[]
   states: string[]
   statuses: string[]
+  roles: string[]
   companyIds: string[]
   hasEmail: Tristate
   hasPhone: Tristate
@@ -41,6 +42,7 @@ export const EMPTY_FILTER: ContactFilterState = {
   tags: [],
   states: [],
   statuses: [],
+  roles: [],
   companyIds: [],
   hasEmail: null,
   hasPhone: null,
@@ -71,6 +73,7 @@ export function applyContactFilter(
   const tagSet = new Set(state.tags.map((t) => t.toLowerCase()))
   const stateSet = new Set(state.states.map((s) => s.toLowerCase()))
   const statusSet = new Set(state.statuses.map((s) => s.toLowerCase()))
+  const roleSet = new Set(state.roles.map((s) => s.toLowerCase()))
   const companySet = new Set(state.companyIds)
 
   // Pre-compute deal info per contact so we don't re-walk for each one
@@ -119,6 +122,11 @@ export function applyContactFilter(
     // Statuses (OR)
     if (statusSet.size > 0) {
       if (!statusSet.has((c.status || '').toLowerCase())) return false
+    }
+
+    // Roles (OR)
+    if (roleSet.size > 0) {
+      if (!roleSet.has((c.role || '').toLowerCase())) return false
     }
 
     // Companies (OR)
@@ -198,6 +206,12 @@ export function describeActiveChips(state: ContactFilterState): ActiveChip[] {
       onRemove: (s) => ({ ...s, statuses: s.statuses.filter((x) => x !== status) }),
     })
   }
+  for (const role of state.roles) {
+    chips.push({
+      key: `role:${role}`, label: `Role: ${role}`,
+      onRemove: (s) => ({ ...s, roles: s.roles.filter((x) => x !== role) }),
+    })
+  }
   for (const c of state.companyIds) {
     chips.push({
       key: `company:${c}`, label: `Company set`,
@@ -260,6 +274,7 @@ export function isFilterEmpty(s: ContactFilterState): boolean {
     s.tags.length === 0 &&
     s.states.length === 0 &&
     s.statuses.length === 0 &&
+    s.roles.length === 0 &&
     s.companyIds.length === 0 &&
     s.hasEmail === null &&
     s.hasPhone === null &&

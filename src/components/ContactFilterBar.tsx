@@ -20,7 +20,7 @@ import {
   ACTIVITY_LABELS,
   parseTags,
 } from '../lib/contactFilter'
-import type { Contact, Company } from '../lib/types'
+import { CONTACT_ROLES, type Contact, type Company } from '../lib/types'
 import { cn } from '../lib/cn'
 
 interface Props {
@@ -61,6 +61,12 @@ export function ContactFilterBar({ state, setState, contacts, companies, totalCo
   const allStatuses = useMemo(() => {
     const set = new Set<string>()
     for (const c of contacts) if (c.status) set.add(c.status)
+    return Array.from(set).sort()
+  }, [contacts])
+  const allRoles = useMemo(() => {
+    // Union of standard roles + any custom values already in data
+    const set = new Set<string>(CONTACT_ROLES as readonly string[])
+    for (const c of contacts) if (c.role) set.add(c.role)
     return Array.from(set).sort()
   }, [contacts])
 
@@ -107,6 +113,7 @@ export function ContactFilterBar({ state, setState, contacts, companies, totalCo
               tags={allTags}
               states={allStates}
               statuses={allStatuses}
+              roles={allRoles}
               companies={companies}
               onClose={() => setPopoverOpen(false)}
             />
@@ -221,13 +228,14 @@ function SavedViewChip({
 // ============================================================
 
 function AddFilterPopover({
-  state, setState, tags, states, statuses, companies, onClose,
+  state, setState, tags, states, statuses, roles, companies, onClose,
 }: {
   state: ContactFilterState
   setState: (s: ContactFilterState) => void
   tags: string[]
   states: string[]
   statuses: string[]
+  roles: string[]
   companies: Company[]
   onClose: () => void
 }) {
@@ -253,6 +261,7 @@ function AddFilterPopover({
       >
       {section === null ? (
         <div className="p-1 max-h-[420px] overflow-y-auto">
+          <SectionButton label="Role / Department" hint={`${roles.length} options`} onClick={() => setSection('roles')} />
           <SectionButton label="Tag" hint={`${tags.length} options`} onClick={() => setSection('tags')} />
           <SectionButton label="State / region" hint={`${states.length} options`} onClick={() => setSection('states')} />
           <SectionButton label="Status" hint={`${statuses.length} options`} onClick={() => setSection('statuses')} />
@@ -299,6 +308,14 @@ function AddFilterPopover({
             ← Back
           </button>
           <div className="p-1 max-h-[360px] overflow-y-auto">
+            {section === 'roles' && (
+              <MultiSelect
+                options={roles}
+                selected={state.roles}
+                onChange={(v) => setState({ ...state, roles: v })}
+                emptyMsg="No role values yet."
+              />
+            )}
             {section === 'tags' && (
               <MultiSelect
                 options={tags}

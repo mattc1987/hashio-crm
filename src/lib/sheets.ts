@@ -83,6 +83,7 @@ function mapContacts(rows: Record<string, string>[]): Contact[] {
     email: r.email || '',
     phone: r.phone || '',
     title: r.title || '',
+    role: r.role || '',
     companyId: r.companyId || '',
     status: r.status || '',
     state: r.state || '',

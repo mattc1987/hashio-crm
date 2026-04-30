@@ -35,6 +35,10 @@ export interface Contact {
   email: string
   phone: string
   title: string
+  /** Functional role / department category (e.g. "Operations", "Finance",
+   *  "Cultivation"). Distinct from `title` (the verbatim job title).
+   *  Used for segmentation + filtering. AI can infer this from title. */
+  role: string
   companyId: string
   status: string
   /** US state / region the contact is in (e.g. "CO", "OR", "Kentucky"). */
@@ -45,6 +49,25 @@ export interface Contact {
   tags: string
   createdAt: string
 }
+
+/** Suggested role values — used for the Contact role dropdown + AI-inference
+ *  output. Open-ended (other strings allowed) but these are the standard
+ *  segmentation buckets for cannabis cultivation. */
+export const CONTACT_ROLES = [
+  'Executive',
+  'Operations',
+  'Cultivation',
+  'Compliance',
+  'Finance',
+  'Sales',
+  'Marketing',
+  'Procurement',
+  'IT / Tech',
+  'HR / People',
+  'Legal',
+  'Quality',
+  'Other',
+] as const
 
 export interface Deal {
   id: string

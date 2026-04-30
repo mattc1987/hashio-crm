@@ -9,6 +9,9 @@ import { cn } from '../lib/cn'
 import { api } from '../lib/api'
 import { ContactFilterBar } from '../components/ContactFilterBar'
 import { applyContactFilter, EMPTY_FILTER, type ContactFilterState } from '../lib/contactFilter'
+import { enrichContactsBulk } from '../lib/bdrAi'
+import { Sparkles } from 'lucide-react'
+import { hasWriteBackend } from '../lib/api'
 
 export function Contacts() {
   const { state, refresh } = useSheetData()
@@ -98,6 +101,38 @@ export function Contacts() {
     refresh()
   }
 
+  const aiEnrichSelected = async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    const targets = contacts.filter((c) => ids.includes(c.id))
+    // Process in chunks of 50 (Apps Script bulk endpoint cap)
+    const chunks: typeof targets[] = []
+    for (let i = 0; i < targets.length; i += 50) chunks.push(targets.slice(i, i + 50))
+    let totalUpdated = 0
+    let totalFailed = 0
+    for (const chunk of chunks) {
+      try {
+        const res = await enrichContactsBulk(chunk)
+        for (const r of res.results) {
+          const c = contacts.find((x) => x.id === r.id)
+          if (!c) continue
+          if (r.role && !c.role) {
+            try {
+              await api.contact.update({ id: r.id, role: r.role })
+              totalUpdated++
+            } catch {
+              totalFailed++
+            }
+          }
+        }
+      } catch (err) {
+        totalFailed += chunk.length
+      }
+    }
+    alert(`AI enrich done: ${totalUpdated} role${totalUpdated === 1 ? '' : 's'} filled, ${totalFailed} failed.`)
+    refresh()
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -158,6 +193,7 @@ export function Contacts() {
           onDelete={deleteMany}
           onSelectAll={selectAll}
           onClear={clearSelection}
+          onAiEnrich={hasWriteBackend() ? aiEnrichSelected : undefined}
         />
       )}
 
@@ -328,7 +364,7 @@ function ContactRow({
 
 function BulkActionBar({
   count, totalVisible, sequences,
-  onEnroll, onDelete, onSelectAll, onClear,
+  onEnroll, onDelete, onSelectAll, onClear, onAiEnrich,
 }: {
   count: number
   totalVisible: number
@@ -337,6 +373,7 @@ function BulkActionBar({
   onDelete: () => void
   onSelectAll: () => void
   onClear: () => void
+  onAiEnrich?: () => void
 }) {
   const [enrollOpen, setEnrollOpen] = useState(false)
   return (
@@ -351,6 +388,18 @@ function BulkActionBar({
         Select all {totalVisible}
       </button>
       <span className="w-px h-5 bg-[var(--border)]" />
+      {onAiEnrich && (
+        <>
+          <button
+            onClick={onAiEnrich}
+            className="text-[12px] font-medium text-body hover:text-[var(--color-brand-600)] inline-flex items-center gap-1.5 whitespace-nowrap"
+            title="AI fills empty Role fields based on Title"
+          >
+            <Sparkles size={13} /> AI enrich roles
+          </button>
+          <span className="w-px h-5 bg-[var(--border)]" />
+        </>
+      )}
       <div className="relative">
         <button
           onClick={() => setEnrollOpen((v) => !v)}

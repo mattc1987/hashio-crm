@@ -591,6 +591,48 @@ export async function enrichLead(lead: Lead): Promise<LeadEnrichment> {
   })
 }
 
+// ---- Contact enrichment ----
+
+export interface ContactEnrichment {
+  role: string
+  title: string
+  linkedinSearchUrl: string
+  notes: string
+  confidence: number
+  model: string
+}
+
+export async function enrichContact(contact: Contact, data: SheetData): Promise<ContactEnrichment> {
+  const company = contact.companyId ? data.companies.find((c) => c.id === contact.companyId) : null
+  return call<ContactEnrichment>('aiEnrichContact', {
+    contact: {
+      id: contact.id,
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+      email: contact.email,
+      title: contact.title,
+      role: contact.role,
+      company: company?.name || '',
+      state: contact.state,
+    },
+  })
+}
+
+export interface BulkEnrichResult {
+  results: Array<{ id: string; role: string; confidence: number }>
+  model: string
+}
+
+export async function enrichContactsBulk(contacts: Contact[]): Promise<BulkEnrichResult> {
+  return call<BulkEnrichResult>('aiEnrichContactsBulk', {
+    contacts: contacts.map((c) => ({
+      id: c.id,
+      title: c.title,
+      role: c.role,
+    })),
+  })
+}
+
 // ============================================================
 // AI Strategist proposals (free-form, beyond rules)
 // ============================================================

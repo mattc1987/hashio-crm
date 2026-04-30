@@ -3,7 +3,7 @@ import { Trash2 } from 'lucide-react'
 import { Drawer, Field } from '../Drawer'
 import { Button, Input, Select } from '../ui'
 import { api } from '../../lib/api'
-import type { Company, Contact } from '../../lib/types'
+import { CONTACT_ROLES, type Company, type Contact } from '../../lib/types'
 
 export type ContactDraft = Partial<Contact>
 
@@ -35,6 +35,7 @@ export function ContactEditor({
             email: '',
             phone: '',
             title: '',
+            role: '',
             companyId: '',
             status: 'Customer',
             state: '',
@@ -112,10 +113,19 @@ export function ContactEditor({
         <Field label="Phone">
           <Input value={draft.phone || ''} onChange={(e) => set('phone', e.target.value)} />
         </Field>
-        <Field label="Title / Job role">
-          <Input value={draft.title || ''} onChange={(e) => set('title', e.target.value)} placeholder="Ops Director" />
+        <Field label="Title (verbatim)" hint="e.g. Director of Operations">
+          <Input value={draft.title || ''} onChange={(e) => set('title', e.target.value)} placeholder="Director of Operations" />
         </Field>
       </div>
+
+      <Field label="Role / Department" hint="Functional category for filtering. AI can fill this from Title.">
+        <Select value={draft.role || ''} onChange={(e) => set('role', e.target.value)}>
+          <option value="">— none —</option>
+          {CONTACT_ROLES.map((r) => (
+            <option key={r} value={r}>{r}</option>
+          ))}
+        </Select>
+      </Field>
 
       <Field label="Company">
         <Select value={draft.companyId || ''} onChange={(e) => set('companyId', e.target.value)}>
