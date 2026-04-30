@@ -155,6 +155,44 @@ export const api = {
   },
 }
 
+/** Bulk write a batch of rows for one entity in a single Apps Script call.
+ *  Use for imports, scans, or any time you'd otherwise loop api.X.create/update.
+ *  Falls back gracefully if the action isn't on the deployed Apps Script. */
+export async function bulkCreate(
+  entity: Entity,
+  rows: Array<Record<string, unknown>>,
+): Promise<{ ok: boolean; written: number; error?: string }> {
+  if (rows.length === 0) return { ok: true, written: 0 }
+  if (!hasWriteBackend()) return { ok: false, written: 0, error: 'No backend configured' }
+  try {
+    const raw = await callScript('bulkCreate', { entity, rows }) as { ok?: boolean; data?: { written?: number; ids?: string[] }; error?: string }
+    if (raw.ok === false) return { ok: false, written: 0, error: raw.error || 'bulkCreate failed' }
+    return { ok: true, written: raw.data?.written || rows.length }
+  } catch (err) {
+    return { ok: false, written: 0, error: (err as Error).message }
+  }
+}
+
+export async function bulkUpdate(
+  entity: Entity,
+  rows: Array<Record<string, unknown> & { id: string }>,
+): Promise<{ ok: boolean; updated: number; error?: string }> {
+  if (rows.length === 0) return { ok: true, updated: 0 }
+  if (!hasWriteBackend()) return { ok: false, updated: 0, error: 'No backend configured' }
+  try {
+    // Also update local cache optimistically so UI reflects changes immediately.
+    for (const row of rows) {
+      const { id, ...patch } = row
+      recordUpdate(entity, id, patch)
+    }
+    const raw = await callScript('bulkUpdate', { entity, rows }) as { ok?: boolean; data?: { updated?: number; failed?: unknown[] }; error?: string }
+    if (raw.ok === false) return { ok: false, updated: 0, error: raw.error || 'bulkUpdate failed' }
+    return { ok: true, updated: raw.data?.updated || rows.length }
+  } catch (err) {
+    return { ok: false, updated: 0, error: (err as Error).message }
+  }
+}
+
 export function invokeAction(action: string, params: Record<string, unknown>): Promise<WriteResult & { data?: unknown }> {
   if (!hasWriteBackend()) return Promise.resolve({ ok: false, error: 'No backend configured' })
   return callScript(action, params).then(

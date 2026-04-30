@@ -10,10 +10,11 @@ import { api } from '../lib/api'
 import { ContactFilterBar } from '../components/ContactFilterBar'
 import { applyContactFilter, EMPTY_FILTER, type ContactFilterState } from '../lib/contactFilter'
 import { enrichContactsBulk } from '../lib/bdrAi'
-import { Sparkles } from 'lucide-react'
-import { hasWriteBackend } from '../lib/api'
+import { Sparkles, ShieldCheck } from 'lucide-react'
+import { hasWriteBackend, bulkUpdate, bulkCreate } from '../lib/api'
 import { AIBdrDrawer } from '../components/AIBdrDrawer'
 import { telUrl, smsUrl, formatPhoneDisplay } from '../lib/phone'
+import { checkAllContacts, tagsWithQualityFlags, flagsToNoteBody, summarizeFlags } from '../lib/qualityCheck'
 
 export function Contacts() {
   const { state, refresh } = useSheetData()
@@ -22,6 +23,8 @@ export function Contacts() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [enrollFor, setEnrollFor] = useState<string | null>(null) // contact id for single-enroll popover
   const [aiContact, setAiContact] = useState<Contact | null>(null) // contact for AI BDR drawer
+  const [scanRunning, setScanRunning] = useState(false)
+  const [scanProgress, setScanProgress] = useState('')
 
   const data = 'data' in state ? state.data : undefined
   const contacts = data?.contacts ?? []
@@ -102,6 +105,97 @@ export function Contacts() {
     await Promise.all(ids.map((id) => api.contact.remove(id)))
     clearSelection()
     refresh()
+  }
+
+  const runQualityScan = async () => {
+    if (!contacts.length) return
+    if (scanRunning) return
+    if (!confirm(
+      `Run quality scan across ${contacts.length} contacts?\n\n` +
+      `This checks for: shared admin emails (info@, sales@, etc.) with executive titles, ` +
+      `personal emails at corporate roles, test/placeholder data, invalid email format, ` +
+      `fake phone numbers, duplicate emails, and more.\n\n` +
+      `Flagged contacts will get tags so they show up in the "AI flagged for review" view. ` +
+      `Notes will be added explaining each flag. Re-running is safe — it overwrites stale flags.`,
+    )) return
+
+    setScanRunning(true)
+    setScanProgress('analyzing')
+    try {
+      // 1. Run all checks locally (fast — sub-second for 3K contacts)
+      const flagsMap = checkAllContacts(contacts)
+      const summary = summarizeFlags(flagsMap, contacts.length)
+
+      if (flagsMap.size === 0) {
+        alert(`Quality scan complete — no issues found across ${contacts.length} contacts. 🎉`)
+        return
+      }
+
+      // 2. Build the bulk-update patches (tags) + bulk-create note records
+      setScanProgress(`flagged ${flagsMap.size}, applying…`)
+      const tagPatches: Array<{ id: string; tags: string }> = []
+      const noteCreates: Array<Record<string, unknown>> = []
+      const ts = new Date().toISOString()
+      for (const cf of flagsMap.values()) {
+        const c = contacts.find((x) => x.id === cf.contactId)
+        if (!c) continue
+        tagPatches.push({
+          id: c.id,
+          tags: tagsWithQualityFlags(c.tags, cf),
+        })
+        noteCreates.push({
+          entityType: 'contact',
+          entityId: c.id,
+          body: flagsToNoteBody(cf),
+          author: 'Quality Scan',
+          createdAt: ts,
+        })
+      }
+
+      // 3. Apply via bulk endpoints — chunk to keep each call manageable
+      const CHUNK = 200
+      let tagsUpdated = 0
+      for (let i = 0; i < tagPatches.length; i += CHUNK) {
+        const chunk = tagPatches.slice(i, i + CHUNK)
+        setScanProgress(`tags ${i}/${tagPatches.length}`)
+        const res = await bulkUpdate('contacts', chunk)
+        if (res.ok) tagsUpdated += res.updated
+      }
+
+      let notesCreated = 0
+      for (let i = 0; i < noteCreates.length; i += CHUNK) {
+        const chunk = noteCreates.slice(i, i + CHUNK)
+        setScanProgress(`notes ${i}/${noteCreates.length}`)
+        const res = await bulkCreate('notes', chunk)
+        if (res.ok) notesCreated += res.written
+      }
+
+      // 4. Summary alert
+      const lines = [
+        `Quality scan complete on ${contacts.length} contacts.`,
+        ``,
+        `🚩 Flagged: ${summary.totalFlagged} (${(summary.totalFlagged / contacts.length * 100).toFixed(1)}%)`,
+        `   • High severity: ${summary.highSeverity}`,
+        `   • Medium severity: ${summary.mediumSeverity}`,
+        `   • Low severity: ${summary.lowSeverity}`,
+        ``,
+        `Recommendations:`,
+        `   🗑 Delete: ${summary.recDelete}`,
+        `   🔧 Fix: ${summary.recFix}`,
+        `   🔍 Research: ${summary.recResearch}`,
+        ``,
+        `Tags applied: ${tagsUpdated} · Notes created: ${notesCreated}`,
+        ``,
+        `Click "🚩 AI flagged for review" in the saved views to see them.`,
+      ]
+      alert(lines.join('\n'))
+      refresh()
+    } catch (err) {
+      alert(`Quality scan error: ${(err as Error).message}`)
+    } finally {
+      setScanRunning(false)
+      setScanProgress('')
+    }
   }
 
   const aiEnrichSelected = async () => {
@@ -185,9 +279,21 @@ export function Contacts() {
         title="Contacts"
         subtitle={`${contacts.length} people`}
         action={
-          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
-            New contact
-          </Button>
+          <div className="flex items-center gap-2">
+            {hasWriteBackend() && contacts.length > 0 && (
+              <Button
+                icon={<ShieldCheck size={13} />}
+                onClick={runQualityScan}
+                disabled={scanRunning}
+                title="Scan all contacts for data-quality issues — runs locally, no AI cost"
+              >
+                {scanRunning ? `Scanning… ${scanProgress}` : 'Quality scan'}
+              </Button>
+            )}
+            <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
+              New contact
+            </Button>
+          </div>
         }
       />
 
