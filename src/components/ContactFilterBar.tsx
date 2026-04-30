@@ -2,7 +2,7 @@
 // removable chips for each active filter, "+ Add filter" popover, and
 // saved views (with localStorage persistence).
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Search, Plus, Star, X, ChevronDown, BookmarkPlus, Trash2,
   Filter as FilterIcon,
@@ -231,23 +231,26 @@ function AddFilterPopover({
   companies: Company[]
   onClose: () => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
   const [section, setSection] = useState<string | null>(null)
 
-  // Close on outside click
+  // Close on Escape key
   useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
-    setTimeout(() => document.addEventListener('click', onClick), 0)
-    return () => document.removeEventListener('click', onClick)
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
   return (
-    <div
-      ref={ref}
-      className="absolute right-0 top-full mt-1 z-30 w-72 surface border-soft rounded-[var(--radius-md)] shadow-soft-lg overflow-hidden flex flex-col"
-    >
+    <>
+      {/* Backdrop catches outside clicks. The popover sits on top via z-index. */}
+      <div
+        className="fixed inset-0 z-20"
+        onClick={onClose}
+        aria-hidden
+      />
+      <div
+        className="absolute right-0 top-full mt-1 z-30 w-72 surface border-soft rounded-[var(--radius-md)] shadow-soft-lg overflow-hidden flex flex-col"
+      >
       {section === null ? (
         <div className="p-1 max-h-[420px] overflow-y-auto">
           <SectionButton label="Tag" hint={`${tags.length} options`} onClick={() => setSection('tags')} />
@@ -348,7 +351,8 @@ function AddFilterPopover({
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   )
 }
 
