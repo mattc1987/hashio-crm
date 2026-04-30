@@ -13,6 +13,7 @@ import { enrichContactsBulk } from '../lib/bdrAi'
 import { Sparkles } from 'lucide-react'
 import { hasWriteBackend } from '../lib/api'
 import { AIBdrDrawer } from '../components/AIBdrDrawer'
+import { telUrl, smsUrl, formatPhoneDisplay } from '../lib/phone'
 
 export function Contacts() {
   const { state, refresh } = useSheetData()
@@ -376,22 +377,31 @@ function ContactRow({
             tone="brand"
           />
         )}
-        {contact.phone && (
-          <>
-            <ActionIcon
-              href={`sms:${contact.phone}`}
-              icon={<MessageSquare size={13} />}
-              title={`Text ${contact.phone}`}
-              tone="success"
-            />
-            <ActionIcon
-              href={`tel:${contact.phone}`}
-              icon={<Phone size={13} />}
-              title={`Call ${contact.phone}`}
-              tone="info"
-            />
-          </>
-        )}
+        {contact.phone && (() => {
+          const sms = smsUrl(contact.phone)
+          const tel = telUrl(contact.phone)
+          const display = formatPhoneDisplay(contact.phone)
+          return (
+            <>
+              {sms && (
+                <ActionIcon
+                  href={sms}
+                  icon={<MessageSquare size={13} />}
+                  title={`Text ${display}`}
+                  tone="success"
+                />
+              )}
+              {tel && (
+                <ActionIcon
+                  href={tel}
+                  icon={<Phone size={13} />}
+                  title={`Call ${display}`}
+                  tone="info"
+                />
+              )}
+            </>
+          )
+        })()}
         {contact.linkedinUrl && (
           <ActionIcon
             href={contact.linkedinUrl}

@@ -13,6 +13,7 @@ import { LogActivityDrawer } from '../components/editors/LogActivityDrawer'
 import { AIBdrDrawer } from '../components/AIBdrDrawer'
 import { api, hasWriteBackend } from '../lib/api'
 import { enrichContact } from '../lib/bdrAi'
+import { telUrl, smsUrl, formatPhoneDisplay } from '../lib/phone'
 import { date, currency, monthlyMRR } from '../lib/format'
 import type { Sequence } from '../lib/types'
 import { cn } from '../lib/cn'
@@ -136,24 +137,33 @@ export function ContactDetail() {
           </div>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
-          {contact.phone && (
-            <>
-              <a
-                href={`tel:${contact.phone}`}
-                className="inline-flex items-center justify-center font-medium transition-all whitespace-nowrap select-none surface border-soft text-body hover:surface-2 active:surface-3 shadow-soft-xs h-9 px-4 text-[13px] rounded-[var(--radius-md)] gap-2"
-                title={`Call ${contact.phone}`}
-              >
-                <Phone size={13} /> Call
-              </a>
-              <a
-                href={`sms:${contact.phone}`}
-                className="inline-flex items-center justify-center font-medium transition-all whitespace-nowrap select-none surface border-soft text-body hover:surface-2 active:surface-3 shadow-soft-xs h-9 px-4 text-[13px] rounded-[var(--radius-md)] gap-2"
-                title={`Text ${contact.phone}`}
-              >
-                <MessageSquare size={13} /> Text
-              </a>
-            </>
-          )}
+          {(() => {
+            const tel = telUrl(contact.phone)
+            const sms = smsUrl(contact.phone)
+            const display = formatPhoneDisplay(contact.phone)
+            return (
+              <>
+                {tel && (
+                  <a
+                    href={tel}
+                    className="inline-flex items-center justify-center font-medium transition-all whitespace-nowrap select-none surface border-soft text-body hover:surface-2 active:surface-3 shadow-soft-xs h-9 px-4 text-[13px] rounded-[var(--radius-md)] gap-2"
+                    title={`Call ${display}`}
+                  >
+                    <Phone size={13} /> Call
+                  </a>
+                )}
+                {sms && (
+                  <a
+                    href={sms}
+                    className="inline-flex items-center justify-center font-medium transition-all whitespace-nowrap select-none surface border-soft text-body hover:surface-2 active:surface-3 shadow-soft-xs h-9 px-4 text-[13px] rounded-[var(--radius-md)] gap-2"
+                    title={`Text ${display}`}
+                  >
+                    <MessageSquare size={13} /> Text
+                  </a>
+                )}
+              </>
+            )
+          })()}
           {hasWriteBackend() && (
             <Button
               variant="primary"

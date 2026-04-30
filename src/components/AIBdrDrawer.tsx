@@ -13,6 +13,7 @@ import { suggestNextMove, type NextMoveSuggestion, type SuggestEntity, type Next
 import { api, invokeAction } from '../lib/api'
 import type { SheetData } from '../lib/types'
 import { cn } from '../lib/cn'
+import { telUrl, smsUrl, formatPhoneDisplay } from '../lib/phone'
 
 interface Props {
   open: boolean
@@ -219,13 +220,41 @@ export function AIBdrDrawer({ open, onClose, entity, data, goal, onApplied }: Pr
           )}
 
           {/* Drafted SMS */}
-          {isSms && (
-            <div className="surface-2 rounded-[var(--radius-md)] p-3 flex flex-col gap-2">
-              <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] font-semibold mb-1">SMS draft</div>
-              <Textarea value={editedBody} onChange={(e) => setEditedBody(e.target.value)} rows={4} className="text-[12px]" />
-              <div className="text-[10px] text-muted text-right">{editedBody.length}/320 chars · {Math.ceil(editedBody.length / 160) || 1} segment(s)</div>
-            </div>
-          )}
+          {isSms && (() => {
+            const phone = callPhone || resolvePhoneFor(entity, data)
+            const sms = phone ? smsUrl(phone, editedBody) : ''
+            const display = phone ? formatPhoneDisplay(phone) : ''
+            return (
+              <div className="surface-2 rounded-[var(--radius-md)] p-3 flex flex-col gap-2 border border-[color:rgba(48,179,107,0.2)]">
+                <div className="flex items-center gap-1.5">
+                  <MessageSquare size={12} className="text-[var(--color-success)]" />
+                  <span className="text-[10px] uppercase tracking-wider text-[var(--color-success)] font-semibold">
+                    SMS draft — edit, then send via your iPhone (Messages)
+                  </span>
+                </div>
+                <Textarea value={editedBody} onChange={(e) => setEditedBody(e.target.value)} rows={4} className="text-[12px]" />
+                <div className="text-[10px] text-muted text-right">{editedBody.length}/320 chars · {Math.ceil(editedBody.length / 160) || 1} segment(s)</div>
+                {sms ? (
+                  <a
+                    href={sms}
+                    className="inline-flex items-center justify-center gap-2 h-9 px-4 text-[13px] rounded-[var(--radius-md)] font-medium bg-[var(--color-success)] text-white hover:brightness-95"
+                    title={`Open Messages with body pre-filled to ${display}`}
+                  >
+                    <MessageSquare size={13} /> Open in Messages — {display}
+                  </a>
+                ) : (
+                  <div className="text-[11px] text-muted">
+                    {phone
+                      ? "Phone number couldn't be normalized for SMS. Edit the contact's phone field."
+                      : "No phone number on this contact — can't open Messages."}
+                  </div>
+                )}
+                <div className="text-[10px] text-muted leading-relaxed">
+                  Tip: requires <strong>SMS Forwarding</strong> on your iPhone (Settings → Messages → Text Message Forwarding → enable for your Mac). One-time setup.
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Drafted phone script — for make-call action */}
           {isCall && (
@@ -242,17 +271,20 @@ export function AIBdrDrawer({ open, onClose, entity, data, goal, onApplied }: Pr
                 rows={8}
                 className="text-[12px] font-mono"
               />
-              {callPhone && (
+              {callPhone && telUrl(callPhone) ? (
                 <a
-                  href={`tel:${callPhone}`}
+                  href={telUrl(callPhone)}
                   className="inline-flex items-center justify-center gap-2 h-9 px-4 text-[13px] rounded-[var(--radius-md)] font-medium bg-[var(--color-info)] text-white hover:brightness-95"
-                  title={`Dial ${callPhone}`}
+                  title={`Dial ${formatPhoneDisplay(callPhone)}`}
                 >
-                  <Phone size={13} /> Dial {callPhone}
+                  <Phone size={13} /> Dial {formatPhoneDisplay(callPhone)}
                 </a>
-              )}
-              {!callPhone && (
-                <div className="text-[11px] text-muted">No phone number on file — add one to make this dial-able.</div>
+              ) : (
+                <div className="text-[11px] text-muted">
+                  {callPhone
+                    ? "Phone number couldn't be normalized — edit the contact's phone field."
+                    : 'No phone number on file — add one to make this dial-able.'}
+                </div>
               )}
             </div>
           )}
@@ -530,6 +562,20 @@ function resolveDealId(e: SuggestEntity): string {
 function resolveEmail(e: SuggestEntity): string {
   if (e.kind === 'contact') return e.contact.email
   if (e.kind === 'lead') return e.lead.email
+  return ''
+}
+
+function resolvePhoneFor(e: SuggestEntity | null, data: SheetData): string {
+  if (!e) return ''
+  if (e.kind === 'contact') return e.contact.phone || ''
+  if (e.kind === 'task') {
+    const c = e.task.contactId ? data.contacts.find((x) => x.id === e.task.contactId) : null
+    return c?.phone || ''
+  }
+  if (e.kind === 'deal') {
+    const c = e.deal.contactId ? data.contacts.find((x) => x.id === e.deal.contactId) : null
+    return c?.phone || ''
+  }
   return ''
 }
 
