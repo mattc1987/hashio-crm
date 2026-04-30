@@ -1,17 +1,18 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Search, Mail, Phone, Users, ChevronRight, MapPin, Link2, Zap, X, Trash2 } from 'lucide-react'
+import { Plus, Mail, Phone, Users, ChevronRight, MapPin, Link2, Zap, X, Trash2 } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
-import { Card, Button, Input, PageHeader, Empty, Avatar, Badge } from '../components/ui'
+import { Card, Button, PageHeader, Empty, Avatar, Badge } from '../components/ui'
 import { ContactEditor } from '../components/editors/ContactEditor'
 import type { Contact, Company, Sequence } from '../lib/types'
 import { cn } from '../lib/cn'
 import { api } from '../lib/api'
+import { ContactFilterBar } from '../components/ContactFilterBar'
+import { applyContactFilter, EMPTY_FILTER, type ContactFilterState } from '../lib/contactFilter'
 
 export function Contacts() {
   const { state, refresh } = useSheetData()
-  const [query, setQuery] = useState('')
-  const [tagFilter, setTagFilter] = useState<string>('')
+  const [filterState, setFilterState] = useState<ContactFilterState>(EMPTY_FILTER)
   const [creating, setCreating] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [enrollFor, setEnrollFor] = useState<string | null>(null) // contact id for single-enroll popover
@@ -20,42 +21,22 @@ export function Contacts() {
   const contacts = data?.contacts ?? []
   const companies = data?.companies ?? []
   const sequences = (data?.sequences ?? []).filter((s) => s.status !== 'archived')
+  const deals = data?.deals ?? []
+  const emailSends = data?.emailSends ?? []
+  const activityLogs = data?.activityLogs ?? []
 
   const companyById = (id: string) => companies.find((c) => c.id === id)
 
-  // All unique tags across all contacts, for the filter bar.
-  const allTags = useMemo(() => {
-    const set = new Set<string>()
-    for (const c of contacts) {
-      parseTags(c.tags).forEach((t) => set.add(t))
-    }
-    return Array.from(set).sort()
-  }, [contacts])
-
   const filtered = useMemo(() => {
-    const q = query.toLowerCase().trim()
-    return contacts
-      .filter((c) => {
-        if (tagFilter && !parseTags(c.tags).includes(tagFilter)) return false
-        if (!q) return true
-        const name = companyById(c.companyId)?.name || ''
-        return (
-          c.firstName.toLowerCase().includes(q) ||
-          c.lastName.toLowerCase().includes(q) ||
-          c.email.toLowerCase().includes(q) ||
-          c.title.toLowerCase().includes(q) ||
-          c.state.toLowerCase().includes(q) ||
-          c.tags.toLowerCase().includes(q) ||
-          name.toLowerCase().includes(q)
-        )
-      })
-      .sort((a, b) => {
-        const an = `${a.lastName}${a.firstName}`.toLowerCase()
-        const bn = `${b.lastName}${b.firstName}`.toLowerCase()
-        return an.localeCompare(bn)
-      })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contacts, query, tagFilter, companies])
+    return applyContactFilter(
+      { contacts, companies, deals, emailSends, activityLogs },
+      filterState,
+    ).sort((a, b) => {
+      const an = `${a.lastName}${a.firstName}`.toLowerCase()
+      const bn = `${b.lastName}${b.firstName}`.toLowerCase()
+      return an.localeCompare(bn)
+    })
+  }, [contacts, companies, deals, emailSends, activityLogs, filterState])
 
   if (!data) return <PageHeader title="Contacts" />
 
@@ -130,48 +111,22 @@ export function Contacts() {
       />
 
       <Card padded={false}>
-        <div className="p-3 border-soft-b flex flex-col gap-2">
-          <div className="relative max-w-md">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]" />
-            <Input
-              placeholder="Search by name, email, company, state, tag…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          {allTags.length > 0 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-              <button
-                onClick={() => setTagFilter('')}
-                className={cn(
-                  'h-7 px-2.5 text-[11px] font-medium rounded-[var(--radius-sm)] transition-colors whitespace-nowrap',
-                  !tagFilter ? 'bg-[var(--color-brand-600)] text-white' : 'surface-2 text-muted hover:text-body',
-                )}
-              >
-                All
-              </button>
-              {allTags.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTagFilter(tagFilter === t ? '' : t)}
-                  className={cn(
-                    'h-7 px-2.5 text-[11px] font-medium rounded-[var(--radius-sm)] transition-colors whitespace-nowrap',
-                    tagFilter === t ? 'bg-[var(--color-brand-600)] text-white' : 'surface-2 text-muted hover:text-body',
-                  )}
-                >
-                  #{t}
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="p-3 border-soft-b">
+          <ContactFilterBar
+            state={filterState}
+            setState={setFilterState}
+            contacts={contacts}
+            companies={companies}
+            totalCount={contacts.length}
+            filteredCount={filtered.length}
+          />
         </div>
 
         {filtered.length === 0 ? (
           <Empty
             icon={<Users size={22} />}
-            title="No contacts"
-            description={query ? `No matches for "${query}".` : 'Add your first contact.'}
+            title="No contacts match"
+            description={filterState.query ? `No matches for "${filterState.query}".` : contacts.length === 0 ? 'Add your first contact.' : 'Try adjusting filters or clear all.'}
           />
         ) : (
           <div className="divide-y divide-[color:var(--border)]">
