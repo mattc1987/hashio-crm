@@ -644,11 +644,19 @@ function BulkActionBar({
       <span className="text-[13px] font-medium text-body whitespace-nowrap">
         {count} selected
       </span>
+      {count < totalVisible && (
+        <button
+          onClick={onSelectAll}
+          className="text-[12px] text-muted hover:text-body whitespace-nowrap"
+        >
+          Select all {totalVisible}
+        </button>
+      )}
       <button
-        onClick={onSelectAll}
+        onClick={onClear}
         className="text-[12px] text-muted hover:text-body whitespace-nowrap"
       >
-        Select all {totalVisible}
+        Unselect all
       </button>
       <span className="w-px h-5 bg-[var(--border)]" />
       {onAiEnrich && (
@@ -700,12 +708,12 @@ function BulkActionBar({
       >
         <Trash2 size={12} /> Delete
       </button>
+      <span className="w-px h-5 bg-[var(--border)]" />
       <button
         onClick={onClear}
-        className="w-7 h-7 rounded-full grid place-items-center text-muted hover:text-body hover:surface-2"
-        aria-label="Clear selection"
+        className="text-[12px] font-medium text-muted hover:text-body inline-flex items-center gap-1.5 whitespace-nowrap"
       >
-        <X size={13} />
+        <X size={12} /> Unselect all
       </button>
     </div>
   )
