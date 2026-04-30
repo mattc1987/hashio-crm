@@ -416,6 +416,7 @@ const FLAG_TYPE_LABELS: Record<string, string> = {
   'ai-flag-title-is-phone': 'Title looks like a phone number (wrong column?)',
   'ai-flag-admin-email-with-person': 'Shared admin inbox attached to a person',
   'ai-flag-personal-email-senior-title': 'Personal email at a senior corporate title',
+  'ai-flag-email-name-mismatch': 'Email contains a different person\'s name',
   'ai-flag-email-domain-typo': 'Email domain looks like a typo',
   'ai-flag-phone-too-short': 'Phone number too short',
   'ai-flag-phone-fake-pattern': 'Phone matches a fake/placeholder pattern',

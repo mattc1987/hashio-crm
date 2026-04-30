@@ -167,6 +167,74 @@ function digitsOnly(s: string): string {
   return (s || '').replace(/\D/g, '')
 }
 
+/** Extract name-like tokens from an email's local part.
+ *  "john.smith@x.com" → ["john", "smith"]
+ *  "j_smith@x.com" → ["j", "smith"]
+ *  "mattc1987@x.com" → []  (digits in token rule it out)
+ *  "info@x.com" → []  (admin prefix, skipped)
+ *  "jdoe@x.com" → ["jdoe"]  (no separator — single token, kept) */
+function extractNameTokensFromEmail(local: string): string[] {
+  if (!local) return []
+  if (ADMIN_EMAIL_PREFIXES.has(local)) return []
+  // Split on common name separators
+  const tokens = local.toLowerCase().split(/[._\-+]+/).filter(Boolean)
+  // Keep only purely-alphabetic tokens of reasonable length
+  return tokens.filter((t) => /^[a-z]+$/.test(t) && t.length >= 2)
+}
+
+/** Does the email's local part plausibly match the contact's name?
+ *  Returns { matches, tokens } so we can build a useful flag reason.
+ *
+ *  Match patterns recognized:
+ *  - exact firstname or lastname
+ *  - first or last initial
+ *  - first-initial + lastname  (jdoe)
+ *  - lastname + first-initial  (doej)
+ *  - firstname + last-initial  (johnd)
+ *  - firstname + lastname concatenated (johnsmith)
+ *  - prefix match: "rob" → "robert", "kate" → "kathryn" */
+function nameMatchesEmail(
+  firstName: string,
+  lastName: string,
+  emailLocal: string,
+): { matches: boolean; tokens: string[] } {
+  const tokens = extractNameTokensFromEmail(emailLocal)
+  if (tokens.length === 0) return { matches: true, tokens } // can't extract — can't say
+  const fn = (firstName || '').toLowerCase().trim()
+  const ln = (lastName || '').toLowerCase().trim()
+  if (!fn && !ln) return { matches: true, tokens } // no contact name — can't say
+  const fi = fn.charAt(0)
+  const li = ln.charAt(0)
+
+  for (const token of tokens) {
+    // Exact match against either name
+    if (fn && token === fn) return { matches: true, tokens }
+    if (ln && token === ln) return { matches: true, tokens }
+    // Initials (single char)
+    if (fn && token === fi && fi) return { matches: true, tokens }
+    if (ln && token === li && li) return { matches: true, tokens }
+    // Concatenated combinations
+    if (fn && ln) {
+      if (token === fi + ln) return { matches: true, tokens }   // jsmith
+      if (token === ln + fi) return { matches: true, tokens }   // smithj
+      if (token === fn + li) return { matches: true, tokens }   // johns
+      if (token === fn + ln) return { matches: true, tokens }   // johnsmith
+      if (token === ln + fn) return { matches: true, tokens }   // smithjohn
+    }
+    // Substring matches (long names — handles nicknames + suffix-stripping)
+    if (fn && fn.length >= 4 && (token.includes(fn) || fn.includes(token))) {
+      if (token.length >= 3) return { matches: true, tokens }
+    }
+    if (ln && ln.length >= 4 && (token.includes(ln) || ln.includes(token))) {
+      if (token.length >= 3) return { matches: true, tokens }
+    }
+    // Prefix-of-name (rob → robert, kate → kathryn)
+    if (fn && token.length >= 3 && fn.startsWith(token)) return { matches: true, tokens }
+    if (ln && token.length >= 3 && ln.startsWith(token)) return { matches: true, tokens }
+  }
+  return { matches: false, tokens }
+}
+
 // ============================================================
 // Per-contact check (returns flags for ONE contact)
 // ============================================================
@@ -272,6 +340,23 @@ export function checkContact(
       recommendation: 'research',
       reason: `${c.email} is a personal email but title is "${titleStr}" — could be founder or scrape error, worth verifying`,
     })
+  }
+
+  // 7b. Email contains a person's name that doesn't match the contact's name.
+  // Strong signal of bad data — wrong contact attached to a real person's email.
+  // Only check when contact has a name AND email isn't a generic admin prefix.
+  if (c.email && (c.firstName || c.lastName) && emailLocal && !ADMIN_EMAIL_PREFIXES.has(emailLocal)) {
+    const { matches, tokens } = nameMatchesEmail(c.firstName || '', c.lastName || '', emailLocal)
+    if (!matches && tokens.length > 0) {
+      flags.push({
+        type: 'email-name-mismatch',
+        severity: 'medium',
+        recommendation: 'research',
+        reason:
+          `Email "${c.email}" looks like it belongs to "${tokens.join(' ')}", ` +
+          `but contact name is "${(c.firstName + ' ' + c.lastName).trim()}" — likely wrong contact attached to this email.`,
+      })
+    }
   }
 
   // 8. Email domain typo
