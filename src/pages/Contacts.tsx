@@ -475,22 +475,23 @@ function ContactRow({
           <div className="text-[13px] font-medium text-body truncate">
             {contact.firstName} {contact.lastName}
           </div>
-          {tags.includes('ai-flag-mismatch') && (
-            <span
-              className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-[color:rgba(245,165,36,0.18)] text-[var(--color-warning)]"
-              title="AI flagged this record as a possible mismatch — open contact to see why"
-            >
-              <AlertTriangle size={10} /> AI flag
-            </span>
-          )}
-          {tags.includes('ai-rec-delete') && (
-            <span
-              className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-[color:rgba(239,76,76,0.12)] text-[var(--color-danger)]"
-              title="AI recommends deleting this contact"
-            >
-              delete?
-            </span>
-          )}
+          {tags.includes('ai-flag-mismatch') && (() => {
+            const reason = getTopFlagReason(tags)
+            const isDelete = tags.includes('ai-rec-delete')
+            const tone = isDelete
+              ? 'bg-[color:rgba(239,76,76,0.12)] text-[var(--color-danger)]'
+              : 'bg-[color:rgba(245,165,36,0.18)] text-[var(--color-warning)]'
+            return (
+              <span
+                className={cn('inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded', tone)}
+                title={`AI flagged · ${reason.tooltip}`}
+              >
+                <AlertTriangle size={10} />
+                {isDelete ? 'delete?' : 'flag'}
+                {reason.label && <span className="opacity-80">· {reason.label}{reason.extra ? ` +${reason.extra}` : ''}</span>}
+              </span>
+            )
+          })()}
           {contact.status === 'Customer' && <Badge tone="success">Customer</Badge>}
           {contact.status && contact.status !== 'Customer' && <Badge tone="neutral">{contact.status}</Badge>}
           {tags.filter((t) => !t.startsWith('ai-')).slice(0, 3).map((t) => (
@@ -722,6 +723,52 @@ function BulkActionBar({
 export function parseTags(raw: string): string[] {
   if (!raw) return []
   return raw.split(/[,|]+/).map((t) => t.trim()).filter(Boolean)
+}
+
+// ============================================================
+// Row-level flag reason — short chip text + tooltip text
+// ============================================================
+
+// Priority order — most severe / most actionable first. The contact's
+// "headline" reason is the highest-priority flag we find on the contact.
+const FLAG_PRIORITY: Array<{
+  tag: string
+  short: string         // appears inline on the row
+  long: string          // appears in tooltip
+}> = [
+  // Delete-recommended
+  { tag: 'ai-flag-duplicate-email',          short: 'dupe email',         long: 'Duplicate of an earlier contact (same email)' },
+  { tag: 'ai-flag-duplicate-name-company',   short: 'dupe name+co',       long: 'Duplicate of an earlier contact (same name + company)' },
+  { tag: 'ai-flag-no-reply-email',           short: 'noreply',            long: 'Automated/no-reply email — not a real person' },
+  { tag: 'ai-flag-test-data',                short: 'test data',          long: 'Looks like test/placeholder data' },
+  { tag: 'ai-flag-admin-email-with-person',  short: 'admin email',        long: 'Shared admin inbox attached to a person' },
+  // Fix-recommended
+  { tag: 'ai-flag-invalid-email',            short: 'invalid email',      long: 'Invalid email format' },
+  { tag: 'ai-flag-title-is-company-name',    short: 'title=company',      long: 'Title looks like a company name (wrong column?)' },
+  { tag: 'ai-flag-title-is-email',           short: 'title=email',        long: 'Title contains an email (wrong column?)' },
+  { tag: 'ai-flag-title-is-phone',           short: 'title=phone',        long: 'Title looks like a phone number (wrong column?)' },
+  { tag: 'ai-flag-email-domain-typo',        short: 'domain typo',        long: 'Email domain looks like a typo' },
+  { tag: 'ai-flag-phone-fake-pattern',       short: 'fake phone',         long: 'Phone matches a fake/placeholder pattern' },
+  { tag: 'ai-flag-phone-too-short',          short: 'phone short',        long: 'Phone number too short' },
+  // Research-recommended
+  { tag: 'ai-flag-email-name-mismatch',      short: 'wrong name',         long: "Email contains a different person's name" },
+  { tag: 'ai-flag-personal-email-senior-title', short: 'personal email', long: 'Personal email at a senior corporate title' },
+  { tag: 'ai-flag-no-name-no-title',         short: 'no name/title',      long: 'No name and no title' },
+  { tag: 'ai-flag-no-contact-info',          short: 'no contact info',    long: 'No email and no phone' },
+]
+
+function getTopFlagReason(tags: string[]): { label: string; tooltip: string; extra: number } {
+  const matched = FLAG_PRIORITY.filter((f) => tags.includes(f.tag))
+  if (matched.length === 0) {
+    return { label: '', tooltip: 'AI flagged this contact — open to see details', extra: 0 }
+  }
+  const top = matched[0]
+  const tooltip = matched.map((m) => `• ${m.long}`).join('\n')
+  return {
+    label: top.short,
+    tooltip,
+    extra: matched.length - 1,
+  }
 }
 
 // Quick-action icon button for contact rows. tel:, sms:, mailto: links work
