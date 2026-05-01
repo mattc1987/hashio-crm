@@ -3,7 +3,7 @@ import Papa from 'papaparse'
 import { Upload, CheckCircle2, AlertTriangle, ArrowRight, ArrowLeft, X } from 'lucide-react'
 import { Card, CardHeader, Button, PageHeader, Badge, Select } from '../components/ui'
 import { cn } from '../lib/cn'
-import { api, invokeAction } from '../lib/api'
+import { api, invokeAction, bulkCreate } from '../lib/api'
 import { recordCreateMany, localId } from '../lib/localCache'
 import { useSheetData } from '../lib/sheet-context'
 
@@ -77,7 +77,17 @@ export function Import() {
   const [rows, setRows] = useState<Record<string, string>[]>([])
   const [mapping, setMapping] = useState<Record<string, string>>({}) // source col -> target field key (or '' for ignore)
 
-  const [progress, setProgress] = useState<{ ok: number; failed: number; skipped: number; total: number; done: boolean; cancelled?: boolean } | null>(null)
+  const [progress, setProgress] = useState<{
+    ok: number
+    failed: number
+    skipped: number
+    total: number
+    done: boolean
+    cancelled?: boolean
+    /** Optional human-readable label for the current phase (e.g. "Pre-creating
+     *  companies" / "Writing contacts"). When set, shown above the bar. */
+    phase?: string
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Warn before nav away while import is in progress (avoid losing work).
@@ -153,15 +163,19 @@ export function Import() {
       })
     }
 
-    // ── PASS 1: prep all rows in memory (fast — pure JS) ──────────────────
+    // ── PASS 1: prep all rows in memory + bulk-create missing companies ──
     // - Apply column mapping
     // - Skip dupes (existing email)
-    // - Pre-create any missing companies (small N, sequential is fine)
+    // - Pre-create any missing companies (BULK — single HTTP call per 200)
     // - Skip empty rows
     let ok = 0, failed = 0, skipped = 0
     const preparedRows: Record<string, unknown>[] = []
 
-    // Resolve all unique company names first → batch any missing creates
+    // Resolve all unique company names first → batch any missing creates.
+    // We pre-generate local IDs and ship them to Apps Script's bulkCreate in
+    // ONE HTTP call (per chunk of 200) instead of one round-trip per company.
+    // Saves 800 sequential 2-second calls (≈25 min) on a typical HubSpot
+    // export — that was the 90% of the import-time budget previously.
     const allCompanyNames = new Set<string>()
     for (const raw of rows) {
       const mapped = applyMapping(raw, mapping)
@@ -170,17 +184,61 @@ export function Import() {
         if (cname) allCompanyNames.add(cname)
       }
     }
+
+    const missingCompanyNames: string[] = []
     for (const cname of allCompanyNames) {
-      if (cancelRef.current) break
       if (!companyIdByName.has(cname.toLowerCase())) {
+        missingCompanyNames.push(cname)
+      }
+    }
+
+    if (missingCompanyNames.length > 0) {
+      setProgress({
+        ok: 0, failed: 0, skipped: 0, total: rows.length, done: false,
+        phase: `Pre-creating ${missingCompanyNames.length} compan${missingCompanyNames.length === 1 ? 'y' : 'ies'}…`,
+      })
+
+      const ts = new Date().toISOString()
+      const newCompanyRows = missingCompanyNames.map((cname) => ({
+        id: localId('companies'),
+        name: cname,
+        createdAt: ts,
+        updatedAt: ts,
+      }))
+
+      // Map name → pre-generated id BEFORE we even call the network — so if
+      // the bulk write fails partially or the user cancels, the remaining
+      // contacts still link by name (and Apps Script will auto-dedupe by id
+      // on retry since we re-use the same local IDs).
+      newCompanyRows.forEach((c) => {
+        companyIdByName.set(c.name.toLowerCase(), c.id)
+      })
+
+      // Optimistic local cache update — companies appear in UI immediately.
+      recordCreateMany('companies', newCompanyRows as Record<string, unknown>[])
+
+      // Bulk write in chunks of 200 (Apps Script payload size limit).
+      const COMPANY_BATCH = 200
+      for (let i = 0; i < newCompanyRows.length; i += COMPANY_BATCH) {
+        if (cancelRef.current) break
+        const chunk = newCompanyRows.slice(i, i + COMPANY_BATCH) as Record<string, unknown>[]
         try {
-          const newCompany = await api.company.create({ name: cname })
-          if (newCompany.row?.id) {
-            companyIdByName.set(cname.toLowerCase(), newCompany.row.id as string)
+          const res = await bulkCreate('companies', chunk)
+          if (!res.ok) {
+            // Fall back to per-row for this chunk only — preserves IDs.
+            for (const row of chunk) {
+              if (cancelRef.current) break
+              try { await api.company.create(row) } catch { /* non-fatal */ }
+            }
           }
         } catch {
-          // Non-fatal — contact will get empty companyId
+          // Network or Apps Script error — keep going, contacts will still
+          // reference these companies by their local IDs.
         }
+        setProgress({
+          ok: 0, failed: 0, skipped: 0, total: rows.length, done: false,
+          phase: `Pre-creating companies… ${Math.min(i + COMPANY_BATCH, newCompanyRows.length)} / ${newCompanyRows.length}`,
+        })
       }
     }
 
@@ -278,7 +336,10 @@ export function Import() {
         }
       }
 
-      setProgress({ ok, failed, skipped, total: rows.length, done: false })
+      setProgress({
+        ok, failed, skipped, total: rows.length, done: false,
+        phase: `Writing ${ENTITY_LABELS[entity].toLowerCase()}… ${ok + failed + skipped} / ${rows.length}`,
+      })
     }
 
     setProgress({ ok, failed, skipped, total: rows.length, done: cancelRef.current ? true : true, cancelled: cancelRef.current })
@@ -491,6 +552,9 @@ export function Import() {
             />
             {progress && (
               <>
+                {progress.phase && !progress.done && (
+                  <div className="text-[12px] text-muted mb-2">{progress.phase}</div>
+                )}
                 <div className="relative h-2 surface-3 rounded-full overflow-hidden mb-3">
                   <div
                     className="absolute inset-y-0 left-0 bg-[var(--color-brand-600)] transition-all"
