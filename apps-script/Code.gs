@@ -573,7 +573,17 @@ function handle_(e) {
 }
 
 function respond_(payload, params) {
-  const body = JSON.stringify(payload);
+  // Force ASCII-safe wire bytes by escaping every non-ASCII char as \uXXXX.
+  // ContentService doesn't let us set a Content-Type charset, and the
+  // Apps Script → script.googleusercontent.com redirect can strip/mangle
+  // it, causing the browser to mis-decode UTF-8 multi-byte sequences as
+  // Latin-1/MacRoman ("—" → "‚Äî", "'" → "‚Äô", etc). Escaping every
+  // non-ASCII char as a JSON \uXXXX literal makes the response pure
+  // ASCII on the wire — JSON.parse on the client decodes back to the
+  // correct Unicode character regardless of charset assumptions.
+  const body = JSON.stringify(payload).replace(/[\u0080-\uffff]/g, function (c) {
+    return '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4);
+  });
   // JSONP support for future static-file deployment (no CORS).
   if (params.callback) {
     return ContentService.createTextOutput(
