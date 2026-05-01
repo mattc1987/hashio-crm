@@ -12,6 +12,7 @@ import { useMemo, useState } from 'react'
 import {
   BookOpen, MessageCircle, FileText, FilePlus2, Sparkles,
   Trash2, Edit3, ToggleLeft, ToggleRight, Loader2, Check,
+  Minimize2, X,
 } from 'lucide-react'
 import { useSheetData } from '../lib/sheet-context'
 import { Card, Button, Input, Textarea, PageHeader, Empty, Badge, Select } from '../components/ui'
@@ -30,6 +31,7 @@ export function Knowledge() {
   const [editing, setEditing] = useState<Knowledge | null>(null)
   const [creating, setCreating] = useState<KnowledgeType | null>(null)
   const [interviewOpen, setInterviewOpen] = useState(false)
+  const [compactOpen, setCompactOpen] = useState(false)
 
   const filtered = useMemo(() => {
     const sorted = [...knowledge].sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt))
@@ -126,6 +128,11 @@ export function Knowledge() {
           ))}
         </div>
         <div className="flex items-center gap-2">
+          {tokenEstimate > 6000 && (
+            <Button variant="secondary" onClick={() => setCompactOpen(true)} title="AI compresses every enabled item into one tight summary — cuts tokens dramatically">
+              <Minimize2 size={14} /> Compact bank
+            </Button>
+          )}
           <Button variant="secondary" onClick={() => setInterviewOpen(true)}>
             <MessageCircle size={14} /> Interview
           </Button>
@@ -166,6 +173,218 @@ export function Knowledge() {
       {interviewOpen && (
         <InterviewWizard onClose={() => setInterviewOpen(false)} />
       )}
+
+      {/* Compact bank drawer */}
+      {compactOpen && (
+        <CompactDrawer
+          knowledge={knowledge}
+          onClose={() => setCompactOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ---------- Compact bank drawer ----------
+
+function CompactDrawer({
+  knowledge, onClose,
+}: {
+  knowledge: Knowledge[]
+  onClose: () => void
+}) {
+  const [phase, setPhase] = useState<'idle' | 'compacting' | 'review' | 'saving' | 'done'>('idle')
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<{
+    compact: string
+    inputChars: number
+    inputItems: number
+    inputItemIds: string[]
+    compactChars: number
+    estimatedTokensIn: number
+    estimatedTokensOut: number
+  } | null>(null)
+  const [edited, setEdited] = useState('')
+  const [disableOriginals, setDisableOriginals] = useState(true)
+
+  const enabled = knowledge.filter((k) => k.enabled)
+  const originalChars = enabled.reduce((sum, k) => sum + (k.summary || k.content || '').length, 0)
+  const originalTokens = Math.round(originalChars / 4)
+
+  const runCompact = async () => {
+    setPhase('compacting')
+    setError(null)
+    try {
+      const res = await invokeAction('aiCompactKnowledge', {})
+      if (!res.ok) throw new Error(res.error || 'Failed to compact')
+      const d = (res as { data?: typeof result }).data
+      if (!d || !d.compact) throw new Error('No compact result returned')
+      setResult(d)
+      setEdited(d.compact)
+      setPhase('review')
+    } catch (err) {
+      setError((err as Error).message)
+      setPhase('idle')
+    }
+  }
+
+  const saveCompact = async () => {
+    if (!result) return
+    setPhase('saving')
+    setError(null)
+    try {
+      const now = new Date().toISOString()
+      // 1. Save the compact summary as a new knowledge item
+      await api.knowledge.create({
+        type: 'freeform',
+        title: `Compact knowledge — ${new Date().toLocaleDateString()}`,
+        content: edited,
+        summary: '',
+        tags: 'compact,master',
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      // 2. Optionally disable the originals (one bulk-style update via per-item)
+      if (disableOriginals && result.inputItemIds.length > 0) {
+        await Promise.all(
+          result.inputItemIds.map((id) => api.knowledge.update({ id, enabled: false, updatedAt: now })),
+        )
+      }
+      setPhase('done')
+      setTimeout(onClose, 1500)
+    } catch (err) {
+      setError((err as Error).message)
+      setPhase('review')
+    }
+  }
+
+  const newTokens = result ? Math.round(edited.length / 4) : 0
+  const tokensSaved = result ? Math.max(0, originalTokens - newTokens) : 0
+  const pctSaved = originalTokens > 0 && result ? Math.round((tokensSaved / originalTokens) * 100) : 0
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-stretch justify-end" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40" />
+      <div
+        className="relative w-full max-w-[720px] h-full bg-[var(--surface)] border-l border-[var(--border)] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 bg-[var(--surface)] border-b border-[var(--border)] px-5 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-[var(--radius-md)] bg-[color:rgba(122,94,255,0.12)] text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)] grid place-items-center">
+              <Minimize2 size={16} />
+            </div>
+            <div>
+              <div className="font-display font-semibold text-[15px] text-body">Compact knowledge bank</div>
+              <div className="text-[12px] text-muted">Crush ~{originalTokens.toLocaleString()} tokens of notes into one tight master summary.</div>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-[var(--radius-sm)] text-muted hover:text-body hover:surface-2">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {error && (
+            <div className="p-3 rounded-[var(--radius-md)] bg-[color:rgba(239,76,76,0.08)] border border-[var(--color-danger)]/20 text-[13px] text-[var(--color-danger)]">
+              {error}
+            </div>
+          )}
+
+          {phase === 'idle' && (
+            <>
+              <div className="p-4 rounded-[var(--radius-md)] surface-2 text-[13px]">
+                <div className="font-medium text-body mb-2">How it works</div>
+                <ol className="list-decimal pl-5 space-y-1 text-muted">
+                  <li>Claude reads <strong>all {enabled.length} enabled knowledge items</strong> ({originalChars.toLocaleString()} chars).</li>
+                  <li>Compresses everything into one structured 800–1,500-word summary.</li>
+                  <li>You review + edit the result, then save it as a new "compact" item.</li>
+                  <li>Optionally disable the originals — your AI cost drops 70-90% with same output quality.</li>
+                </ol>
+                <div className="mt-3 text-[11px] text-[var(--text-faint)]">
+                  Cost of this single compaction call: about ${((originalTokens * 3) / 1_000_000 + (4000 * 15) / 1_000_000).toFixed(2)}.
+                </div>
+              </div>
+              <Button onClick={runCompact} variant="primary">
+                <Sparkles size={14} /> Generate compact summary
+              </Button>
+            </>
+          )}
+
+          {phase === 'compacting' && (
+            <div className="flex items-center gap-3 text-muted text-[13px] py-8 justify-center">
+              <Loader2 size={16} className="animate-spin" />
+              Compacting your knowledge bank… (~30 sec)
+            </div>
+          )}
+
+          {(phase === 'review' || phase === 'saving') && result && (
+            <>
+              <div className="grid grid-cols-3 gap-3 text-[12px]">
+                <div className="p-3 rounded-[var(--radius-md)] surface-2">
+                  <div className="text-muted">Before</div>
+                  <div className="font-display text-[18px] font-semibold text-body">~{originalTokens.toLocaleString()}</div>
+                  <div className="text-[10px] text-[var(--text-faint)]">tokens</div>
+                </div>
+                <div className="p-3 rounded-[var(--radius-md)] surface-2">
+                  <div className="text-muted">After</div>
+                  <div className="font-display text-[18px] font-semibold text-body">~{newTokens.toLocaleString()}</div>
+                  <div className="text-[10px] text-[var(--text-faint)]">tokens</div>
+                </div>
+                <div className="p-3 rounded-[var(--radius-md)] bg-[color:rgba(48,179,107,0.08)] border border-[var(--color-success)]/20">
+                  <div className="text-[var(--color-success)]">Saved</div>
+                  <div className="font-display text-[18px] font-semibold text-[var(--color-success)]">{pctSaved}%</div>
+                  <div className="text-[10px] text-[var(--color-success)]">{tokensSaved.toLocaleString()} tokens/call</div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-faint)] mb-1">
+                  Compact summary (edit if you want)
+                </div>
+                <Textarea
+                  value={edited}
+                  onChange={(e) => setEdited(e.target.value)}
+                  className="min-h-[400px] font-mono text-[12px]"
+                />
+              </div>
+
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={disableOriginals}
+                  onChange={(e) => setDisableOriginals(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <div>
+                  <div className="text-[13px] font-medium text-body">Disable the {result.inputItems} original items after saving</div>
+                  <div className="text-[11px] text-muted">They stay in the bank (you can re-enable anytime) but are excluded from the AI context block. Recommended.</div>
+                </div>
+              </label>
+
+              <div className="flex items-center gap-2 pt-2 border-t border-[var(--border)]">
+                <Button onClick={saveCompact} variant="primary" disabled={phase === 'saving' || !edited.trim()}>
+                  {phase === 'saving' ? <><Loader2 size={14} className="animate-spin" /> Saving…</> : <><Check size={14} /> Save compact summary</>}
+                </Button>
+                <Button variant="ghost" onClick={onClose}>Cancel</Button>
+              </div>
+            </>
+          )}
+
+          {phase === 'done' && (
+            <div className="flex flex-col items-center text-center py-8 gap-3">
+              <div className="w-12 h-12 rounded-full bg-[color:rgba(48,179,107,0.12)] grid place-items-center text-[var(--color-success)]">
+                <Check size={20} />
+              </div>
+              <div className="font-display font-semibold text-[15px] text-body">Compact summary saved</div>
+              <div className="text-muted text-[13px] max-w-xs">
+                Your AI context is now ~{newTokens.toLocaleString()} tokens — saving you about {pctSaved}% per call.
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

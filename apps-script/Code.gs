@@ -458,6 +458,31 @@ function handle_(e) {
         break;
       }
 
+      case 'aiCompactKnowledge': {
+        // Compresses ALL enabled knowledge items into one tight master summary.
+        // Massive token saver — turns ~14k tokens of raw notes into ~2-3k of
+        // structured essentials that still capture everything an AI BDR needs.
+        out.ok = true;
+        out.data = aiCompactKnowledge_();
+        break;
+      }
+
+      case 'getKnowledgeFeatureConfig': {
+        // Returns the current per-feature ON/OFF map for Knowledge injection,
+        // merged with hardcoded defaults. Used by Settings UI to render toggles.
+        out.ok = true;
+        out.data = getKnowledgeFeatureConfig_();
+        break;
+      }
+
+      case 'setKnowledgeFeatureConfig': {
+        // Saves a partial patch of feature toggles. Body: { features: { key: bool } }.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = setKnowledgeFeatureConfig_(payload);
+        break;
+      }
+
       case 'sendDailyDigest': {
         // Manually fire the daily digest now (for testing). Same code path as
         // the cron trigger.
@@ -1169,12 +1194,113 @@ function buildCompanyContext_() {
   return __companyContextCache_;
 }
 
-/** Wrap any system prompt with the company-context block. Use this for
- *  every Claude system prompt across the file. */
-function withCompanyContext_(systemPrompt) {
+/** Wrap any system prompt with the company-context block. The `featureKey`
+ *  argument lets the user enable/disable knowledge per-feature in Settings —
+ *  e.g. ON for the Sequence Builder (output quality matters), OFF for
+ *  single-email drafts (high volume, generic OK) to control API cost. */
+function withCompanyContext_(systemPrompt, featureKey) {
+  if (featureKey && !knowledgeEnabledFor_(featureKey)) return systemPrompt;
   const ctx = buildCompanyContext_();
   if (!ctx) return systemPrompt;
   return ctx + '\n\n' + systemPrompt;
+}
+
+/** Per-feature defaults for Knowledge bank usage. ON = inject the company
+ *  context (~14k tokens) into this AI call; OFF = skip the context, save cost.
+ *
+ *  Defaults split features into two buckets:
+ *    • DEEP generation — knowledge ON (output quality is the whole point)
+ *    • QUICK / mechanical actions — knowledge OFF (high volume, cost matters)
+ *
+ *  The user can override any of these in Settings → Knowledge bank usage.
+ *  Stored in Script Properties as JSON under KNOWLEDGE_FEATURES. */
+const KNOWLEDGE_DEFAULTS_ = {
+  // Deep generation — knowledge is the differentiator
+  aiBuildSequence:        true,   // Sequence Builder
+  aiBuildEmailTemplate:   true,   // Email Template Builder
+  aiSuggestTargets:       true,   // Lead-target suggestions (needs ICP)
+  aiStrategistProposals:  true,   // Strategist proposals (full context)
+  aiDashboardBriefing:    true,   // Daily briefing card / cron digest
+  aiNextInterviewQuestion: true,  // Interview wizard (needs to know what's covered)
+  aiSummarizeKnowledge:   true,   // Source summarizer (relevance-aware)
+
+  // Quick / mechanical — opt-in to save cost
+  draftMessage:           false,  // Single email/SMS drafts (high volume)
+  narrativeReason:        false,  // "Why this proposal" tooltips
+  aiSuggestNextMove:      false,  // AI BDR contact suggestions
+  aiEnrichLead:           false,  // Lead enrichment (mechanical inference)
+  aiEnrichContact:        false,  // Contact enrichment, single
+  aiEnrichContactsBulk:   false,  // Contact enrichment, bulk
+};
+
+/** Read the per-feature config from Script Properties, merged on top of
+ *  KNOWLEDGE_DEFAULTS_. Returns a complete map { featureKey: bool }. */
+function getKnowledgeFeatureConfig_() {
+  const raw = PropertiesService.getScriptProperties().getProperty('KNOWLEDGE_FEATURES') || '{}';
+  let user = {};
+  try { user = JSON.parse(raw); } catch (e) { user = {}; }
+  const out = {};
+  Object.keys(KNOWLEDGE_DEFAULTS_).forEach(function (k) {
+    out[k] = user.hasOwnProperty(k) ? user[k] === true : KNOWLEDGE_DEFAULTS_[k];
+  });
+  return out;
+}
+
+/** Save a partial patch of feature toggles. Merges with whatever's stored
+ *  so the caller only needs to send the keys they're flipping. */
+function setKnowledgeFeatureConfig_(payload) {
+  const raw = PropertiesService.getScriptProperties().getProperty('KNOWLEDGE_FEATURES') || '{}';
+  let current = {};
+  try { current = JSON.parse(raw); } catch (e) { current = {}; }
+  const patch = (payload && payload.features) || {};
+  Object.keys(patch).forEach(function (k) {
+    if (KNOWLEDGE_DEFAULTS_.hasOwnProperty(k)) {
+      current[k] = patch[k] === true;
+    }
+  });
+  PropertiesService.getScriptProperties().setProperty('KNOWLEDGE_FEATURES', JSON.stringify(current));
+  return getKnowledgeFeatureConfig_();
+}
+
+/** Cheap single-feature lookup. Used by withCompanyContext_. */
+function knowledgeEnabledFor_(featureKey) {
+  const cfg = getKnowledgeFeatureConfig_();
+  return cfg[featureKey] === true;
+}
+
+/** Read active booking links from the BookingLinks tab and return them as
+ *  a structured block of text that can be dropped into any AI system prompt
+ *  or user message. Critical for preventing Claude from inventing fake
+ *  scheduling URLs (the calendly/savvycal hallucination bug).
+ *
+ *  Returns: a multi-line string, or '' if no active links exist.
+ *  Format: includes both the URLs and explicit "do not invent other URLs" rules. */
+function getActiveBookingLinksBlock_() {
+  let rows;
+  try { rows = readTab_('BookingLinks'); }
+  catch (e) { return ''; }
+  if (!rows || !rows.length) {
+    return 'BOOKING LINKS: NONE configured. If you suggest a meeting, do NOT invent a URL — write "I\'ll send a few times that work" instead.';
+  }
+  const active = rows.filter(function (r) { return r.status === 'active' || r.status === '' || r.status === undefined; });
+  if (!active.length) {
+    return 'BOOKING LINKS: NONE active. If you suggest a meeting, do NOT invent a URL — write "I\'ll send a few times that work" instead.';
+  }
+  const baseUrl = 'https://mattc1987.github.io/hashio-crm/#/book/';
+  const lines = [
+    'MATT\'S REAL ACTIVE BOOKING LINKS — when you propose a meeting/demo/call, paste one of these URLs VERBATIM:',
+  ];
+  active.forEach(function (b) {
+    const url = baseUrl + b.slug;
+    const dur = b.durationMinutes ? (b.durationMinutes + ' min') : '';
+    const name = b.name || b.slug;
+    lines.push('  - ' + name + (dur ? ' (' + dur + ')' : '') + ': ' + url);
+  });
+  lines.push('');
+  lines.push('CRITICAL — NEVER invent calendly.com, hubspot.com, savvycal.com, calendar.google.com, or any other domain.');
+  lines.push('Those are NOT Matt\'s URLs — they will 404 on the prospect. Use ONLY the URLs above. Pick the one that matches the goal');
+  lines.push('(15-min intro for cold, 30-min demo for qualified, etc.). NEVER write a placeholder like [link], [URL], <link>, {{link}}.');
+  return lines.join('\n');
 }
 
 function setAnthropicConfig_(payload) {
@@ -1277,7 +1403,7 @@ function draftMessage_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 600,
-      system: withCompanyContext_(systemPrompt),
+      system: withCompanyContext_(systemPrompt, 'draftMessage'),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -1397,7 +1523,7 @@ function narrativeReason_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 200,
-      system: withCompanyContext_(systemPrompt),
+      system: withCompanyContext_(systemPrompt, 'narrativeReason'),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -1480,7 +1606,7 @@ function aiSuggestNextMove_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 1200,
-      system: withCompanyContext_(systemPrompt),
+      system: withCompanyContext_(systemPrompt, 'aiSuggestNextMove'),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -1567,7 +1693,7 @@ function aiDashboardBriefing_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 1500,
-      system: withCompanyContext_(systemPrompt),
+      system: withCompanyContext_(systemPrompt, 'aiDashboardBriefing'),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -1642,7 +1768,7 @@ function aiSuggestTargets_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 3000,
-      system: withCompanyContext_(systemPrompt),
+      system: withCompanyContext_(systemPrompt, 'aiSuggestTargets'),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -1758,7 +1884,10 @@ function aiBuildEmailTemplate_(payload) {
     '7. ALWAYS include a single, specific CTA. No double-asks. No "let me know if you have questions" wishy-washy endings.\n' +
     '8. SUBJECT lines under 60 chars. Often shorter is stronger.\n' +
     '9. Use merge tags where they add specificity: {{firstName}}, {{lastName}}, {{company}}, {{title}}, {{role}}, {{state}}. Don\'t shoehorn — better to omit a tag than have it look stuffed in.\n' +
-    '10. Cannabis cultivation context: reference real industry pain points when fitting — cost-per-pound, METRC reporting, multi-strain yield variance, harvest scheduling, GMP certification, multi-state expansion, Tier 1-3 licensing, indoor vs greenhouse vs outdoor, regulatory audits, K-12 / employee training, OSHA, state-specific compliance.\n\n' +
+    '10. Cannabis cultivation context: reference real industry pain points when fitting — cost-per-pound, METRC reporting, multi-strain yield variance, harvest scheduling, GMP certification, multi-state expansion, Tier 1-3 licensing, indoor vs greenhouse vs outdoor, regulatory audits, K-12 / employee training, OSHA, state-specific compliance.\n' +
+    '11. BOOKING LINKS: if your CTA proposes a meeting, paste ONLY a real URL from the list below — never invent calendly.com, hubspot.com, savvycal.com, or any other domain.\n\n' +
+    '## BOOKING LINKS (real, active, verbatim only)\n' +
+    getActiveBookingLinksBlock_() + '\n\n' +
     '## USE CASE\n' +
     useCaseDescription + (useCaseDetail ? '\nADDITIONAL CONTEXT: ' + useCaseDetail : '') + '\n\n' +
     '## AUDIENCE\n' +
@@ -1798,7 +1927,7 @@ function aiBuildEmailTemplate_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 2500,
-      system: withCompanyContext_(systemPrompt),
+      system: withCompanyContext_(systemPrompt, 'aiBuildEmailTemplate'),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -1882,7 +2011,10 @@ function aiBuildSequence_(payload) {
     '7. BREAKUP EMAIL: Final touch should be a "permission to close your file" message. Counter-intuitively gets the highest reply rate of the sequence.\n' +
     '8. BRANCHING: Different content for opened-vs-not, clicked-vs-not, replied-vs-not. The sequence reacts intelligently.\n' +
     '9. VOICE: Warm, direct, low-key. NEVER use "synergy", "leverage", "circle back", "touch base", "just checking in", "ping you", "circle around", "moving forward", "low-hanging fruit". Sign emails "— Matt".\n' +
-    '10. DON\'T APOLOGIZE for following up. Persistence is value, not pestering.\n\n' +
+    '10. DON\'T APOLOGIZE for following up. Persistence is value, not pestering.\n' +
+    '11. BOOKING LINKS — when an email or SMS step proposes a meeting/demo/call, you MUST paste a real URL from the BOOKING LINKS block below VERBATIM. NEVER invent calendly.com, hubspot.com, savvycal.com, calendar.google.com, or any other domain. NEVER use a placeholder like [link] or {{link}}. If no booking link is suitable, write "I\'ll send a few times that work" instead of any URL.\n\n' +
+    '## BOOKING LINKS (real, active, verbatim only)\n' +
+    getActiveBookingLinksBlock_() + '\n\n' +
     '## SEQUENCE STRUCTURE TEMPLATE (adapt to the goal)\n' +
     'For cold outreach with branching:\n' +
     '  Step 0: D1 intro email (specific value, single CTA)\n' +
@@ -1945,7 +2077,7 @@ function aiBuildSequence_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 8000,
-      system: withCompanyContext_(systemPrompt),
+      system: withCompanyContext_(systemPrompt, 'aiBuildSequence'),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -2004,7 +2136,7 @@ function aiEnrichLead_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 600,
-      system: withCompanyContext_(systemPrompt),
+      system: withCompanyContext_(systemPrompt, 'aiEnrichLead'),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -2083,7 +2215,7 @@ function aiEnrichContact_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 400,
-      system: withCompanyContext_(systemPrompt),
+      system: withCompanyContext_(systemPrompt, 'aiEnrichContact'),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -2155,7 +2287,7 @@ function aiEnrichContactsBulk_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 4000,
-      system: withCompanyContext_(systemPrompt),
+      system: withCompanyContext_(systemPrompt, 'aiEnrichContactsBulk'),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -2220,7 +2352,7 @@ function aiStrategistProposals_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 3000,
-      system: withCompanyContext_(systemPrompt),
+      system: withCompanyContext_(systemPrompt, 'aiStrategistProposals'),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -2306,7 +2438,7 @@ function aiNextInterviewQuestion_(payload) {
       // Inject prior knowledge so the interview knows which topics are
       // already covered (avoids redundant questions) and can ask sharper
       // follow-ups grounded in what Matt has already said.
-      system: withCompanyContext_(systemPrompt),
+      system: withCompanyContext_(systemPrompt, 'aiNextInterviewQuestion'),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -2367,7 +2499,7 @@ function aiSummarizeKnowledge_(payload) {
       // Inject prior knowledge so summaries lock onto what's relevant for
       // THIS company (Claude pulls out the right quotes / objections / numbers
       // instead of generic ones).
-      system: withCompanyContext_(systemPrompt),
+      system: withCompanyContext_(systemPrompt, 'aiSummarizeKnowledge'),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -2377,6 +2509,109 @@ function aiSummarizeKnowledge_(payload) {
   const json = JSON.parse(res.getContentText());
   const text = (json.content && json.content[0] && json.content[0].text) || '';
   return { summary: text.trim(), model: model };
+}
+
+/** Master compactor — takes EVERY enabled knowledge item and asks Claude to
+ *  produce one tight, structured summary (~800-1500 words) that captures
+ *  everything an AI BDR needs. The user then saves this as a new "compact"
+ *  item and disables the originals — drops the AI context block from
+ *  ~14k tokens to ~2-3k.
+ *
+ *  Returns: { compact: "markdown", inputChars, inputItems, estimatedSavings, model }
+ */
+function aiCompactKnowledge_() {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured.');
+
+  // Gather every enabled item.
+  let rows;
+  try { rows = readTab_('Knowledge'); }
+  catch (e) { throw new Error('Knowledge tab not found.'); }
+  if (!rows || !rows.length) throw new Error('Your knowledge bank is empty — nothing to compact.');
+
+  const enabled = rows.filter(function (r) { return r.enabled !== false && r.enabled !== 'false'; });
+  if (!enabled.length) throw new Error('No enabled knowledge items.');
+
+  // Concatenate. Use raw content (not summary) — we want the compactor to
+  // see EVERYTHING and decide what's important itself.
+  const blocks = enabled.map(function (r) {
+    const title = (r.title || 'Untitled').trim();
+    const body = (r.content || r.summary || '').trim();
+    return '## ' + title + ' (' + (r.type || 'note') + ')\n' + body;
+  });
+  let inputText = blocks.join('\n\n---\n\n');
+
+  // Cap at ~120K chars (~30K tokens) to stay safe — anything beyond that
+  // is unlikely to fit usefully in a single Claude call anyway.
+  if (inputText.length > 120000) {
+    inputText = inputText.slice(0, 120000) + '\n\n[INPUT TRUNCATED — knowledge bank was very large; some later items not included]';
+  }
+  const inputChars = inputText.length;
+
+  const systemPrompt =
+    'You are a master sales-context compressor. Your job: take EVERY note, transcript, ' +
+    'interview answer, and source the user has dumped about their company, and produce ' +
+    'ONE tight, structured master summary that an AI BDR can use as the company knowledge ' +
+    'base going forward.\n\n' +
+    '## OUTPUT TARGET\n' +
+    '- Length: 800-1500 words. Brutal compression. No filler. No "this document covers...".\n' +
+    '- Format: markdown with these section headers (skip a section only if you have nothing for it):\n' +
+    '  ### Company in one line\n' +
+    '  ### What we sell + how it works\n' +
+    '  ### ICP (buyer + champion)\n' +
+    '  ### Top value props (with proof points / quantified where possible)\n' +
+    '  ### Common objections + responses\n' +
+    '  ### Competitive positioning\n' +
+    '  ### Pricing model\n' +
+    '  ### Demo flow + wow moments\n' +
+    '  ### Customer stories worth referencing\n' +
+    '  ### Voice / tone (3-5 adjectives + style notes)\n' +
+    '  ### Red flags / deal-killers\n' +
+    '  ### Internal jargon / must-mention details\n\n' +
+    '## RULES\n' +
+    '- Pull out concrete soundbites, customer quotes, numbers — those are the gold.\n' +
+    '- Drop fluff, repetition, and meta-commentary.\n' +
+    '- If two sources contradict, prefer the more specific / recent one and note the conflict in 1 line.\n' +
+    '- DO NOT add anything that isn\'t supported by the source material.\n' +
+    '- DO NOT preface with "Here is the summary..." — start directly with the first ### header.';
+
+  const userMessage =
+    '=== ALL KNOWLEDGE ITEMS (' + enabled.length + ' items, ' + inputChars + ' chars) ===\n\n' +
+    inputText +
+    '\n\n=== END ===\n\nProduce the master compressed summary now.';
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': ANTHROPIC_API_VERSION_,
+    },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 4000,
+      // Don't wrap — this IS the compaction job; we don't want recursion.
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  const json = JSON.parse(res.getContentText());
+  const compact = ((json.content && json.content[0] && json.content[0].text) || '').trim();
+
+  return {
+    compact: compact,
+    inputChars: inputChars,
+    inputItems: enabled.length,
+    inputItemIds: enabled.map(function (r) { return r.id; }),
+    compactChars: compact.length,
+    estimatedTokensIn:  Math.round(inputChars / 4),
+    estimatedTokensOut: Math.round(compact.length / 4),
+    model: model,
+  };
 }
 
 
