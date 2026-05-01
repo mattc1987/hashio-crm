@@ -2303,10 +2303,10 @@ function aiNextInterviewQuestion_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 400,
-      // NOTE: deliberately NOT wrapping with withCompanyContext_ — the
-      // interview is filling that context. We don't want it to be self-aware
-      // about what's already in the bank, only the in-progress history.
-      system: systemPrompt,
+      // Inject prior knowledge so the interview knows which topics are
+      // already covered (avoids redundant questions) and can ask sharper
+      // follow-ups grounded in what Matt has already said.
+      system: withCompanyContext_(systemPrompt),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -2364,8 +2364,10 @@ function aiSummarizeKnowledge_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 1200,
-      // Don't wrap — summary is INPUT to context, not output of context.
-      system: systemPrompt,
+      // Inject prior knowledge so summaries lock onto what's relevant for
+      // THIS company (Claude pulls out the right quotes / objections / numbers
+      // instead of generic ones).
+      system: withCompanyContext_(systemPrompt),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
