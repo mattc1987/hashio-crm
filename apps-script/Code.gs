@@ -467,6 +467,23 @@ function handle_(e) {
         break;
       }
 
+      case 'getEmailSignature': {
+        // Returns { plain, html, source: 'custom'|'gmail'|'none' } — the signature
+        // currently being appended to outgoing BDR/sequence emails.
+        out.ok = true;
+        out.data = getEmailSignature_();
+        break;
+      }
+
+      case 'setEmailSignature': {
+        // Save a custom signature override. Body: { plain, html? }. Pass empty
+        // strings to both to clear the override and fall back to Gmail auto-detect.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = setEmailSignature_(payload);
+        break;
+      }
+
       case 'getKnowledgeFeatureConfig': {
         // Returns the current per-feature ON/OFF map for Knowledge injection,
         // merged with hardcoded defaults. Used by Settings UI to render toggles.
@@ -3076,14 +3093,24 @@ function sendSequenceEmail_(opts) {
     ? webAppUrl + '?action=trackOpen&s=' + sendId + '&key=' + getApiKey_()
     : '';
 
-  // Wrap URLs so we can record clicks.
+  // Append email signature to plain + HTML bodies. GmailApp.sendEmail does
+  // NOT auto-pull the user's Gmail signature, so we append it here.
+  // Skipped if `opts.skipSignature` is true (used for cron-internal mails).
+  const sig = opts.skipSignature ? { plain: '', html: '' } : getEmailSignature_();
+  const plainWithSig = sig.plain
+    ? (opts.body || '') + '\n\n-- \n' + sig.plain
+    : (opts.body || '');
+
+  // Wrap URLs so we can record clicks. Build HTML from the SIGNED plain
+  // body so the signature inherits the same link-tracking treatment for
+  // any URLs in it (e.g. booking links you've added to your sig).
   const htmlBodyCore = webAppUrl
-    ? plainToHtmlWithTracking_(opts.body, sendId, webAppUrl)
-    : plainToHtml_(opts.body);
+    ? plainToHtmlWithTracking_(plainWithSig, sendId, webAppUrl)
+    : plainToHtml_(plainWithSig);
   const htmlBody = htmlBodyCore + (pixelUrl ? ('<img src="' + pixelUrl + '" width="1" height="1" alt="" style="display:none" />') : '');
 
   // Send
-  GmailApp.sendEmail(opts.to, opts.subject, opts.body, {
+  GmailApp.sendEmail(opts.to, opts.subject, plainWithSig, {
     name: getFromName_() || undefined,
     htmlBody: htmlBody,
   });
@@ -3590,6 +3617,102 @@ function resolveMergeTags_(s, ctx) {
 
 function getFromName_() {
   return PropertiesService.getScriptProperties().getProperty('FROM_NAME') || '';
+}
+
+/* ---------- Email signature ---------------------------------------------
+ *  GmailApp.sendEmail does NOT auto-pull your Gmail signature, so we manage
+ *  it ourselves. Two tiers:
+ *    1. Custom signature stored in Script Properties (user override)
+ *    2. Auto-pulled from Gmail's SendAs settings (Advanced Gmail Service)
+ *  If neither is set, no signature is appended.
+ * ----------------------------------------------------------------------- */
+
+/** Returns { plain, html, source } where source is one of:
+ *    'custom'  — user pasted a signature in Settings
+ *    'gmail'   — auto-pulled from the user's Gmail account
+ *    'none'    — nothing configured
+ *
+ *  In-process cache: once per execution. */
+let __sigCache_ = null;
+function getEmailSignature_() {
+  if (__sigCache_) return __sigCache_;
+  const props = PropertiesService.getScriptProperties();
+  const customPlain = props.getProperty('EMAIL_SIGNATURE_PLAIN');
+  const customHtml  = props.getProperty('EMAIL_SIGNATURE_HTML');
+  if (customPlain || customHtml) {
+    const plain = customPlain || htmlToPlain_(customHtml || '');
+    const html  = customHtml || textToBasicHtml_(customPlain || '');
+    __sigCache_ = { plain: plain, html: html, source: 'custom' };
+    return __sigCache_;
+  }
+  // Try auto-detect from Gmail's SendAs settings (requires Gmail Advanced Service)
+  try {
+    if (typeof Gmail !== 'undefined' && Gmail && Gmail.Users && Gmail.Users.Settings && Gmail.Users.Settings.SendAs) {
+      const list = Gmail.Users.Settings.SendAs.list('me');
+      const sendAs = (list && list.sendAs) || [];
+      // Pick the primary one's signature
+      const primary = sendAs.find ? sendAs.find(function (s) { return s.isPrimary; }) : null;
+      const sig = primary && primary.signature ? primary.signature : '';
+      if (sig) {
+        __sigCache_ = { plain: htmlToPlain_(sig), html: sig, source: 'gmail' };
+        return __sigCache_;
+      }
+    }
+  } catch (e) {
+    // Gmail Advanced Service not enabled or no permission — silently fall back
+  }
+  __sigCache_ = { plain: '', html: '', source: 'none' };
+  return __sigCache_;
+}
+
+/** Save a custom signature override. Body: { plain, html? }.
+ *  Pass null/empty to both to clear and fall back to Gmail auto-detect. */
+function setEmailSignature_(payload) {
+  const props = PropertiesService.getScriptProperties();
+  const plain = (payload && payload.plain) ? String(payload.plain) : '';
+  const html  = (payload && payload.html)  ? String(payload.html)  : '';
+  if (!plain && !html) {
+    props.deleteProperty('EMAIL_SIGNATURE_PLAIN');
+    props.deleteProperty('EMAIL_SIGNATURE_HTML');
+  } else {
+    if (plain) props.setProperty('EMAIL_SIGNATURE_PLAIN', plain);
+    else props.deleteProperty('EMAIL_SIGNATURE_PLAIN');
+    if (html) props.setProperty('EMAIL_SIGNATURE_HTML', html);
+    else props.deleteProperty('EMAIL_SIGNATURE_HTML');
+  }
+  __sigCache_ = null; // invalidate cache so next read picks up the change
+  return getEmailSignature_();
+}
+
+/** Crude HTML-to-plaintext: strip tags, collapse whitespace, decode common
+ *  HTML entities. Good enough for Gmail signatures (which are mostly
+ *  inline-styled text, not arbitrary HTML). */
+function htmlToPlain_(html) {
+  if (!html) return '';
+  return String(html)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** Plaintext → minimal HTML (replace newlines with <br>). */
+function textToBasicHtml_(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
 }
 
 /* ---------- Row utility helpers ---------- */
