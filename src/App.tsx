@@ -18,6 +18,7 @@ import { SequenceEditor } from './pages/SequenceEditor'
 import { SequenceEnrollments } from './pages/SequenceEnrollments'
 import { Templates } from './pages/Templates'
 import { Engagement } from './pages/Engagement'
+import { Knowledge } from './pages/Knowledge'
 import { BookingLinks } from './pages/BookingLinks'
 import { BookingLinkEditor } from './pages/BookingLinkEditor'
 import { PublicBooking } from './pages/PublicBooking'
@@ -45,6 +46,7 @@ export default function App() {
         <Route path="/sequences/:id/enrollments" element={<SequenceEnrollments />} />
         <Route path="/templates" element={<Templates />} />
         <Route path="/engagement" element={<Engagement />} />
+        <Route path="/knowledge" element={<Knowledge />} />
         <Route path="/scheduling" element={<BookingLinks />} />
         <Route path="/scheduling/:id" element={<BookingLinkEditor />} />
         <Route path="/exec" element={<ExecUpdates />} />

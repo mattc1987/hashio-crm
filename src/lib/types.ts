@@ -538,6 +538,33 @@ export interface SmsSend {
   repliedAt: string
 }
 
+/** Knowledge bank — central company-context store. Every enabled item is
+ *  auto-injected into every AI system prompt by the Apps Script backend
+ *  (see `withCompanyContext_` in Code.gs). */
+export type KnowledgeType = 'interview' | 'freeform' | 'source'
+
+export interface Knowledge {
+  id: string
+  /** 'interview' = structured Q/A from the AI interview wizard.
+   *  'freeform'  = anything-goes notes pasted into the textarea.
+   *  'source'    = pasted demo transcripts, pricing docs, battlecards, case studies. */
+  type: KnowledgeType
+  /** Human-readable label e.g. "Founder interview", "Demo call - Acme Corp". */
+  title: string
+  /** Raw content as the user wrote/pasted it. */
+  content: string
+  /** Optional Claude-compressed summary. When present, the summary is what
+   *  gets injected into AI prompts (saves tokens). Generated server-side
+   *  by `aiSummarizeKnowledge_`. */
+  summary: string
+  /** Comma-separated tags. */
+  tags: string
+  /** When false, this item is excluded from the AI context block. */
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export interface SheetData {
   companies: Company[]
   contacts: Contact[]
@@ -559,5 +586,6 @@ export interface SheetData {
   leads: Lead[]
   smsSends: SmsSend[]
   proposals: Proposal[]
+  knowledge: Knowledge[]
   fetchedAt: string
 }

@@ -60,6 +60,7 @@ const TABS = {
   leads:          'Leads',
   smsSends:       'SmsSends',
   proposals:      'Proposals',
+  knowledge:      'Knowledge',
 };
 
 /** Canonical header set per entity. Used by ensureHeaders / ensureTabs to
@@ -86,6 +87,12 @@ const KNOWN_HEADERS_ = {
   leads:         ['id','source','externalId','firstName','lastName','email','linkedinUrl','headline','title','companyName','companyLinkedinUrl','companyDomain','companyIndustry','companySize','location','engagementSignals','temperature','score','status','notes','convertedContactId','createdAt','lastSignalAt'],
   smsSends:      ['id','enrollmentId','sequenceId','stepId','contactId','to','from','body','twilioSid','status','errorMessage','sentAt','deliveredAt','repliedAt'],
   proposals:     ['id','ruleId','category','priority','confidence','risk','title','reason','expectedOutcome','actionKind','actionPayload','status','createdAt','resolvedAt','resolvedBy','executedAt','executionResult','contactIds','dealId','companyId'],
+  // Knowledge — central company-context bank that auto-injects into every AI prompt.
+  // type: 'interview' | 'freeform' | 'source'
+  //   interview = structured Q/A from the AI interview wizard
+  //   freeform  = anything-goes notes
+  //   source    = pasted demo transcripts, battlecards, pricing docs, case studies
+  knowledge:     ['id','type','title','content','summary','tags','enabled','createdAt','updatedAt'],
 };
 
 /** Add any missing fields as new header columns on the given entity's tab.
@@ -429,6 +436,25 @@ function handle_(e) {
         const payload = safeJson_(params.payload) || {};
         out.ok = true;
         out.data = aiStrategistProposals_(payload);
+        break;
+      }
+
+      case 'aiNextInterviewQuestion': {
+        // Knowledge-bank interview: given prior Q/A, returns the next single
+        // question to ask (or {done:true} when there's enough context).
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = aiNextInterviewQuestion_(payload);
+        break;
+      }
+
+      case 'aiSummarizeKnowledge': {
+        // Compresses a long pasted source (transcript, doc, battlecard) down
+        // to a structured summary that gets injected into AI prompts. The
+        // raw content is still saved — the summary is what the AI sees.
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = aiSummarizeKnowledge_(payload);
         break;
       }
 
@@ -1092,6 +1118,65 @@ const ANTHROPIC_DEFAULT_MODEL_ = 'claude-sonnet-4-5-20250929';
 const ANTHROPIC_API_URL_ = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_API_VERSION_ = '2023-06-01';
 
+/** Per-execution cache of the company-context block so we only read the
+ *  Knowledge tab once per request, not once per AI call. */
+let __companyContextCache_ = null;
+
+/** Build the company-context block from the Knowledge tab. Each enabled
+ *  knowledge item becomes a labeled section. Capped at ~40K chars (~10K
+ *  tokens) so we don't blow the context window on huge transcript imports.
+ *  Returns '' if there's no knowledge yet.
+ *  Auto-injected into every AI system prompt via withCompanyContext_(). */
+function buildCompanyContext_() {
+  if (__companyContextCache_ !== null) return __companyContextCache_;
+  let rows;
+  try { rows = readTab_('Knowledge'); }
+  catch (e) { __companyContextCache_ = ''; return ''; }
+  if (!rows || !rows.length) { __companyContextCache_ = ''; return ''; }
+
+  const enabled = rows.filter(function (r) { return r.enabled !== false && r.enabled !== 'false'; });
+  if (!enabled.length) { __companyContextCache_ = ''; return ''; }
+
+  const MAX_CHARS = 40000;
+  const blocks = [];
+  let totalLen = 0;
+  for (let i = 0; i < enabled.length; i++) {
+    const r = enabled[i];
+    const title = String(r.title || '').trim() || 'Untitled';
+    // Prefer summary if present (Claude-compressed) — falls back to raw content.
+    const body = String(r.summary || r.content || '').trim();
+    if (!body) continue;
+    const block = '## ' + title + ' (' + (r.type || 'note') + ')\n' + body;
+    if (totalLen + block.length > MAX_CHARS) {
+      // Truncate this block to fit; mark with an ellipsis note.
+      const remaining = MAX_CHARS - totalLen;
+      if (remaining > 200) {
+        blocks.push(block.slice(0, remaining) + '\n[...truncated]');
+      }
+      break;
+    }
+    blocks.push(block);
+    totalLen += block.length;
+  }
+  if (!blocks.length) { __companyContextCache_ = ''; return ''; }
+  __companyContextCache_ =
+    '<company_context>\n' +
+    'The user, Matt Campbell, has filled out a knowledge bank about his company. ' +
+    'Use this to ground every recommendation, voice match, value prop, ICP detail, ' +
+    'and objection handling. If the user\'s knowledge contradicts your assumptions, the knowledge wins.\n\n' +
+    blocks.join('\n\n---\n\n') +
+    '\n</company_context>';
+  return __companyContextCache_;
+}
+
+/** Wrap any system prompt with the company-context block. Use this for
+ *  every Claude system prompt across the file. */
+function withCompanyContext_(systemPrompt) {
+  const ctx = buildCompanyContext_();
+  if (!ctx) return systemPrompt;
+  return ctx + '\n\n' + systemPrompt;
+}
+
 function setAnthropicConfig_(payload) {
   const props = PropertiesService.getScriptProperties();
   if (payload.apiKey) props.setProperty('ANTHROPIC_API_KEY', String(payload.apiKey).trim());
@@ -1192,7 +1277,7 @@ function draftMessage_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 600,
-      system: systemPrompt,
+      system: withCompanyContext_(systemPrompt),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -1312,7 +1397,7 @@ function narrativeReason_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 200,
-      system: systemPrompt,
+      system: withCompanyContext_(systemPrompt),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -1395,7 +1480,7 @@ function aiSuggestNextMove_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 1200,
-      system: systemPrompt,
+      system: withCompanyContext_(systemPrompt),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -1482,7 +1567,7 @@ function aiDashboardBriefing_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 1500,
-      system: systemPrompt,
+      system: withCompanyContext_(systemPrompt),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -1557,7 +1642,7 @@ function aiSuggestTargets_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 3000,
-      system: systemPrompt,
+      system: withCompanyContext_(systemPrompt),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -1713,7 +1798,7 @@ function aiBuildEmailTemplate_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 2500,
-      system: systemPrompt,
+      system: withCompanyContext_(systemPrompt),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -1860,7 +1945,7 @@ function aiBuildSequence_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 8000,
-      system: systemPrompt,
+      system: withCompanyContext_(systemPrompt),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -1919,7 +2004,7 @@ function aiEnrichLead_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 600,
-      system: systemPrompt,
+      system: withCompanyContext_(systemPrompt),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -1998,7 +2083,7 @@ function aiEnrichContact_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 400,
-      system: systemPrompt,
+      system: withCompanyContext_(systemPrompt),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -2070,7 +2155,7 @@ function aiEnrichContactsBulk_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 4000,
-      system: systemPrompt,
+      system: withCompanyContext_(systemPrompt),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -2135,7 +2220,7 @@ function aiStrategistProposals_(payload) {
     payload: JSON.stringify({
       model: model,
       max_tokens: 3000,
-      system: systemPrompt,
+      system: withCompanyContext_(systemPrompt),
       messages: [{ role: 'user', content: userMessage }],
     }),
     muteHttpExceptions: true,
@@ -2149,6 +2234,147 @@ function aiStrategistProposals_(payload) {
   try { parsed = JSON.parse(cleaned); } catch (e) { /* return empty */ }
   parsed.model = model;
   return parsed;
+}
+
+
+/* ---------- Knowledge Bank — interview wizard + source summarization ---------- */
+
+/** Returns the next interview question given prior Q/A. The interview
+ *  walks Matt through ~12 topics (company, ICP, value props, objections,
+ *  competition, pricing, voice, etc.) but adapts based on prior answers
+ *  — short answers trigger follow-ups, long answers move to the next topic.
+ *
+ *  Input:  { history: [{question, answer}, ...] }
+ *  Output: { question: "...", topicLabel: "...", done: bool, progress: 0-100 }
+ */
+function aiNextInterviewQuestion_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured.');
+
+  const history = Array.isArray(payload.history) ? payload.history : [];
+
+  const systemPrompt =
+    'You are running a structured discovery interview for a founder named Matt Campbell who runs Hashio Inc. ' +
+    '(B2B SaaS for cannabis cultivators). Your job is to extract the company knowledge that an AI BDR ' +
+    'needs to write outstanding outbound: company positioning, ICP, value props, common objections, ' +
+    'competitor angles, pricing model, demo flow, voice/tone, and red flags.\n\n' +
+    '## TOPICS (cover all in roughly this order — but skip topics already answered)\n' +
+    '1. Company in one sentence — what you sell, who buys it\n' +
+    '2. ICP — title + company-size + industry of the BUYER (who signs the check)\n' +
+    '3. CHAMPION inside the buyer org — who feels the pain, advocates internally\n' +
+    '4. Top 3 value props — concrete, quantified if possible\n' +
+    '5. Top 3 objections you hear and how you handle each\n' +
+    '6. Top 2-3 competitors and how you win against them\n' +
+    '7. Pricing model + typical first-year deal size\n' +
+    '8. What makes a great demo — flow, "wow moments"\n' +
+    '9. Best customer story / case study you reference in outbound\n' +
+    '10. Red flags / deal-killers / poor-fit signals\n' +
+    '11. Voice/tone — describe how you want emails to sound (3-5 adjectives)\n' +
+    '12. Anything else AI should know — quirky details, internal jargon, must-mention\n\n' +
+    '## RULES\n' +
+    '- Ask ONE question at a time. Make it conversational, not a survey.\n' +
+    '- If the prior answer was vague or short, ask a follow-up that pulls more specifics. ' +
+    'But don\'t over-drill — 1 follow-up max per topic.\n' +
+    '- Don\'t restate prior answers. Just ask the next question.\n' +
+    '- After all 12 topics are well-covered, return {"done": true, "question": ""}.\n\n' +
+    '## OUTPUT — STRICT JSON, NO MARKDOWN\n' +
+    '{\n' +
+    '  "question": "the next question to ask Matt (1-2 sentences max)",\n' +
+    '  "topicLabel": "short label for what topic this is, e.g. \\"ICP\\" or \\"Objections\\"",\n' +
+    '  "topicIndex": 1-12,\n' +
+    '  "progress": 0-100,\n' +
+    '  "done": false\n' +
+    '}';
+
+  const userMessage = history.length === 0
+    ? 'No history yet — ask the first question.'
+    : 'Interview so far:\n' + history.map(function (qa, i) {
+        return '[' + (i + 1) + '] Q: ' + qa.question + '\n    A: ' + qa.answer;
+      }).join('\n\n') + '\n\nWhat\'s the next question?';
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': ANTHROPIC_API_VERSION_,
+    },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 400,
+      // NOTE: deliberately NOT wrapping with withCompanyContext_ — the
+      // interview is filling that context. We don't want it to be self-aware
+      // about what's already in the bank, only the in-progress history.
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  let parsed = { question: '', topicLabel: '', topicIndex: 0, progress: 0, done: false };
+  try { parsed = JSON.parse(cleaned); } catch (e) { /* fall through */ }
+  parsed.model = model;
+  return parsed;
+}
+
+/** Compresses a long pasted source (transcript, doc, battlecard) into a
+ *  structured summary the AI can use without burning context tokens.
+ *
+ *  Input:  { title, content, kind?: 'transcript'|'document'|'battlecard'|'pricing'|'casestudy'|'other' }
+ *  Output: { summary: "markdown bullets", model }
+ */
+function aiSummarizeKnowledge_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured.');
+
+  const title   = (payload.title || 'Untitled source').toString();
+  const kind    = (payload.kind  || 'other').toString();
+  const content = (payload.content || '').toString();
+  if (!content.trim()) throw new Error('No content to summarize.');
+
+  // Cap input at ~80K chars (~20K tokens) to stay safe of model limits.
+  const trimmed = content.length > 80000 ? content.slice(0, 80000) + '\n[truncated]' : content;
+
+  const systemPrompt =
+    'You compress sales/company sources into compact, structured summaries that an AI BDR can use as ' +
+    'reference. Pull out: key claims, numbers, customer quotes, objections + responses, competitor ' +
+    'moves, pricing details, "wow moments" from demos, and any concrete soundbites. ' +
+    'Discard fluff. No preamble. Markdown bullets only. Aim for 200-600 words. If the source is short ' +
+    '(under 1500 chars), return the original cleaned up.';
+
+  const userMessage =
+    'Source title: ' + title + '\n' +
+    'Source kind: ' + kind + '\n\n' +
+    '---BEGIN SOURCE---\n' + trimmed + '\n---END SOURCE---\n\n' +
+    'Compress this into a structured summary an AI BDR will reference when writing outbound for this company.';
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': ANTHROPIC_API_VERSION_,
+    },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 1200,
+      // Don't wrap — summary is INPUT to context, not output of context.
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+  return { summary: text.trim(), model: model };
 }
 
 

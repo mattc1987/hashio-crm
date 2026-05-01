@@ -14,6 +14,7 @@ import {
   Calendar,
   Flame,
   Sparkles,
+  BookOpen,
 } from 'lucide-react'
 import { cn } from '../lib/cn'
 
@@ -39,6 +40,7 @@ export const NAV_OUTREACH: NavEntry[] = [
   { to: '/templates',  label: 'Templates',  icon: FileText },
   { to: '/scheduling', label: 'Scheduling', icon: Calendar },
   { to: '/engagement', label: 'Engagement', icon: Send },
+  { to: '/knowledge',  label: 'Knowledge',  icon: BookOpen },
 ]
 
 export const NAV_SECONDARY: NavEntry[] = [

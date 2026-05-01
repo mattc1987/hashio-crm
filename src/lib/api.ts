@@ -153,6 +153,11 @@ export const api = {
     update: (payload: Record<string, unknown>) => save('emailSends', 'update', payload),
     remove: (id: string) => save('emailSends', 'delete', { id }),
   },
+  knowledge: {
+    create: (payload: Record<string, unknown>) => save('knowledge', 'create', payload),
+    update: (payload: Record<string, unknown>) => save('knowledge', 'update', payload),
+    remove: (id: string) => save('knowledge', 'delete', { id }),
+  },
 }
 
 /** Bulk write a batch of rows for one entity in a single Apps Script call.

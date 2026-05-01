@@ -19,6 +19,8 @@ import type {
   Enrollment,
   ExecUpdate,
   Invoice,
+  Knowledge,
+  KnowledgeType,
   Lead,
   Note,
   Proposal,
@@ -336,6 +338,22 @@ function mapProposals(rows: Record<string, string>[]): Proposal[] {
   }))
 }
 
+function mapKnowledge(rows: Record<string, string>[]): Knowledge[] {
+  return rows.map((r) => ({
+    id: r.id,
+    type: ((r.type as KnowledgeType) || 'freeform'),
+    title: r.title || '',
+    content: r.content || '',
+    summary: r.summary || '',
+    tags: r.tags || '',
+    // Sheet stores booleans as the strings 'true'/'false' or 'TRUE'/'FALSE'.
+    // Default to enabled when the cell is blank.
+    enabled: r.enabled === '' || r.enabled === undefined ? true : !/^false$/i.test(String(r.enabled)),
+    createdAt: r.createdAt || '',
+    updatedAt: r.updatedAt || '',
+  }))
+}
+
 function mapSmsSends(rows: Record<string, string>[]): SmsSend[] {
   return rows.map((r) => ({
     id: r.id,
@@ -407,6 +425,7 @@ export async function loadAll(): Promise<SheetData> {
     leadRows,
     smsSendRows,
     proposalRows,
+    knowledgeRows,
   ] = await Promise.all([
     fetchTab('Companies'),
     fetchTab('Contacts'),
@@ -428,6 +447,7 @@ export async function loadAll(): Promise<SheetData> {
     fetchTab('Leads').catch(() => []),
     fetchTab('SmsSends').catch(() => []),
     fetchTab('Proposals').catch(() => []),
+    fetchTab('Knowledge').catch(() => []),
   ])
 
   return {
@@ -451,6 +471,7 @@ export async function loadAll(): Promise<SheetData> {
     leads: mapLeads(leadRows),
     smsSends: mapSmsSends(smsSendRows),
     proposals: mapProposals(proposalRows),
+    knowledge: mapKnowledge(knowledgeRows),
     fetchedAt: new Date().toISOString(),
   }
 }
