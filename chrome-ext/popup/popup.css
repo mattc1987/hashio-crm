@@ -174,3 +174,15 @@ textarea { resize: vertical; min-height: 60px; font-family: inherit; }
   animation: spin 0.7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.sig-banner {
+  background: rgba(122, 94, 255, 0.08);
+  color: var(--brand-700);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  margin-bottom: 10px;
+  border: 1px solid rgba(122, 94, 255, 0.18);
+}
+.sig-banner strong { color: var(--brand); }

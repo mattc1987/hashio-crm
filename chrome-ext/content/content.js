@@ -102,9 +102,27 @@
       senderEmail = (pick.getAttribute('email') || '').toLowerCase()
     }
 
+    // Body grab — IMPORTANT: prefer the body of the picked sender's specific
+    // message, not just the first .a3s in the thread. The first .a3s belongs
+    // to the OLDEST message; if Matt sent first and the prospect replied, the
+    // prospect's reply (with their signature) is in a LATER .a3s. Walk up
+    // from the picked .gD to its containing message, then find that
+    // message's .a3s. Falls back to the first .a3s if traversal fails.
     let bodyPreview = ''
-    const bodyEl = document.querySelector('[role="main"] .a3s')
-    if (bodyEl) bodyPreview = ((bodyEl.innerText || bodyEl.textContent) || '').trim().slice(0, 800)
+    let bodyEl = null
+    if (pick) {
+      // Walk up looking for a container that holds both the picked sender
+      // AND a body. Gmail wraps each message in a parent containing both.
+      let cursor = pick
+      for (let i = 0; i < 12 && cursor && !bodyEl; i++) {
+        cursor = cursor.parentElement
+        if (cursor) bodyEl = cursor.querySelector('.a3s')
+      }
+    }
+    if (!bodyEl) bodyEl = document.querySelector('[role="main"] .a3s')
+    // 2500 chars instead of 800 — signatures live at the bottom and we need
+    // enough buffer for the sig parser to find them past the body content.
+    if (bodyEl) bodyPreview = ((bodyEl.innerText || bodyEl.textContent) || '').trim().slice(0, 2500)
 
     let date = ''
     const dateEl = document.querySelector('[role="main"] .g3, [role="main"] [data-tooltip-contains-time]')
@@ -118,6 +136,10 @@
     const m = hash.match(/\/([A-Za-z0-9]+)$/)
     if (m) threadId = m[1]
 
+    // Pre-parse the signature here so both the popup and the embedded sidebar
+    // can use it without duplicating the regex extractor.
+    const signature = parseSignature(bodyPreview, senderName || '', senderEmail || '')
+
     return {
       senderName: senderName || senderEmail || '',
       senderEmail: senderEmail,
@@ -126,6 +148,7 @@
       date,
       threadId,
       url: window.location.href,
+      signature,
       // Useful for debugging: what email did the extension think was the user?
       _myEmail: myEmail,
     }
@@ -541,9 +564,27 @@
   function showAddContactForm(email, formSlot, toastSlot) {
     const fullName = email.senderName || ''
     const parts = fullName.split(/\s+/).filter(Boolean)
+
+    // Use the signature pre-parsed by readCurrentEmail (both sidebar and popup
+    // share the same parsed result). Best-effort regex extraction — review
+    // and edit before save.
+    const sig = email.signature || { title: '', phone: '', companyName: '', linkedinUrl: '', website: '' }
+    const extractedAny = !!(sig.phone || sig.title || sig.companyName || sig.linkedinUrl || sig.website)
+
     formSlot.innerHTML = `
       <div class="form-drawer">
         <h3>Add contact</h3>
+        ${extractedAny ? `
+          <div class="sig-banner">
+            <strong>✨ Auto-filled from signature:</strong>
+            ${[
+              sig.title       ? 'title' : '',
+              sig.phone       ? 'phone' : '',
+              sig.companyName ? 'company' : '',
+              sig.linkedinUrl ? 'LinkedIn' : '',
+            ].filter(Boolean).join(' · ')} — review below.
+          </div>
+        ` : ''}
         <div class="row">
           <div class="field" style="flex:1;"><label>First name</label>
             <input type="text" id="c-first" value="${escapeAttr(parts[0] || '')}" /></div>
@@ -552,6 +593,16 @@
         </div>
         <div class="field"><label>Email</label>
           <input type="email" id="c-email" value="${escapeAttr(email.senderEmail)}" /></div>
+        <div class="field"><label>Title</label>
+          <input type="text" id="c-title" value="${escapeAttr(sig.title)}" placeholder="Director of Operations" /></div>
+        <div class="row">
+          <div class="field" style="flex:1;"><label>Phone</label>
+            <input type="tel" id="c-phone" value="${escapeAttr(sig.phone)}" placeholder="(555) 555-5555" /></div>
+          <div class="field" style="flex:1;"><label>Company</label>
+            <input type="text" id="c-company" value="${escapeAttr(sig.companyName)}" placeholder="Acme Corp" /></div>
+        </div>
+        <div class="field"><label>LinkedIn</label>
+          <input type="url" id="c-linkedin" value="${escapeAttr(sig.linkedinUrl)}" placeholder="https://linkedin.com/in/…" /></div>
         <div class="actions">
           <button class="btn btn-primary" id="save-contact">Add contact</button>
           <button class="btn btn-ghost" id="cancel-contact">Cancel</button>
@@ -561,6 +612,43 @@
     formSlot.querySelector('#cancel-contact').addEventListener('click', () => { formSlot.innerHTML = '' })
     formSlot.querySelector('#save-contact').addEventListener('click', async () => {
       showToast(toastSlot, '<span class="spinner"></span> Adding…', true)
+
+      const companyName = formSlot.querySelector('#c-company').value.trim()
+
+      // If we got a company name from the signature OR the user typed one,
+      // make sure a Company row exists. Look it up case-insensitively in the
+      // CRM cache; create if missing. The new contact then carries that
+      // company's id so it links cleanly on the contact detail page.
+      let companyId = ''
+      if (companyName) {
+        try {
+          const crm = await sendBg({ type: 'GET_CRM_DATA' })
+          if (crm.ok) {
+            const existing = (crm.data.companies || []).find(
+              (c) => (c.name || '').toLowerCase().trim() === companyName.toLowerCase()
+            )
+            if (existing) {
+              companyId = existing.id
+            } else {
+              const created = await sendBg({
+                type: 'CALL_SCRIPT', action: 'write',
+                payload: {
+                  entity: 'companies', op: 'create',
+                  payload: {
+                    name: companyName,
+                    website: sig.website || '',
+                    industry: '', size: '', address: '', notes: '',
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                  },
+                },
+              })
+              if (created.ok && created.data && created.data.id) companyId = created.data.id
+            }
+          }
+        } catch { /* fall through — contact gets blank companyId */ }
+      }
+
       const res = await sendBg({
         type: 'CALL_SCRIPT', action: 'write',
         payload: {
@@ -569,8 +657,14 @@
             firstName: formSlot.querySelector('#c-first').value.trim(),
             lastName: formSlot.querySelector('#c-last').value.trim(),
             email: formSlot.querySelector('#c-email').value.trim(),
-            phone: '', title: '', role: '', companyId: '', status: 'new',
-            state: '', linkedinUrl: '', tags: 'gmail-ext',
+            phone: formSlot.querySelector('#c-phone').value.trim(),
+            title: formSlot.querySelector('#c-title').value.trim(),
+            role: '',
+            companyId: companyId,
+            status: 'new',
+            state: '',
+            linkedinUrl: formSlot.querySelector('#c-linkedin').value.trim(),
+            tags: 'gmail-ext',
             createdAt: new Date().toISOString(),
           },
         },
@@ -615,6 +709,144 @@
     const d = new Date()
     d.setDate(d.getDate() + n)
     return d.toISOString().slice(0, 10)
+  }
+
+  /**
+   * Parse a sales/signature block out of an email body. Best-effort, regex-
+   * based — handles ~80% of real signatures (names, titles, phones,
+   * companies, LinkedIn URLs). Returns:
+   *   { title, phone, companyName, linkedinUrl, website }
+   *
+   * Strategy:
+   *   1. Isolate the signature region (after "-- " separator if present,
+   *      or last 12 non-quoted lines otherwise).
+   *   2. Skip quoted reply lines (start with ">" or "On <date> wrote:").
+   *   3. Run separate regex extractors for each field.
+   */
+  function parseSignature(bodyText, senderName, senderEmail) {
+    const out = { title: '', phone: '', companyName: '', linkedinUrl: '', website: '' }
+    if (!bodyText) return out
+
+    // Strip Gmail's quoted history — anything after "On <DATE>... wrote:"
+    // and any line starting with > is the prior message, not the sig.
+    let text = bodyText
+    const onWroteIdx = text.search(/\nOn\s+\w+,?\s+\w.*\swrote:\s*\n/i)
+    if (onWroteIdx > 0) text = text.slice(0, onWroteIdx)
+
+    // Split into lines, drop quoted ones
+    let lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => !l.startsWith('>'))
+
+    // Isolate signature: after "-- " separator if present, else last 12 lines
+    const sepIdx = lines.findIndex((l) => /^--\s*$/.test(l))
+    let sigLines
+    if (sepIdx >= 0) {
+      sigLines = lines.slice(sepIdx + 1)
+    } else {
+      // Heuristic: signatures usually start with a name line that matches
+      // (or partially matches) the sender's name. If we can find that line
+      // near the bottom, take everything from there. Else last 12 lines.
+      const nameTokens = (senderName || '').toLowerCase().split(/\s+/).filter(Boolean)
+      let nameLineIdx = -1
+      if (nameTokens.length >= 1) {
+        for (let i = lines.length - 1; i >= Math.max(0, lines.length - 20); i--) {
+          const lower = lines[i].toLowerCase()
+          if (nameTokens.every((tok) => lower.includes(tok))) { nameLineIdx = i; break }
+        }
+      }
+      sigLines = nameLineIdx >= 0 ? lines.slice(nameLineIdx) : lines.slice(-12)
+    }
+    // Filter empty and overly-long lines (real sig lines are short)
+    sigLines = sigLines.filter((l) => l.length > 0 && l.length < 120)
+
+    const sigText = sigLines.join('\n')
+    const sigLower = sigText.toLowerCase()
+
+    // ---- LinkedIn URL ----
+    const liMatch = sigText.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/(?:in|pub)\/[\w\-_/?=&%]+/i)
+    if (liMatch) {
+      let url = liMatch[0]
+      if (!/^https?:\/\//i.test(url)) url = 'https://' + url
+      out.linkedinUrl = url.replace(/[.,;)]+$/, '') // trim trailing punctuation
+    }
+
+    // ---- Phone ----
+    // Match a 10-digit US number or +CC variants. Avoid false-matching credit-
+    // card / order-number sequences by requiring at least one separator
+    // (-, ., space, parens) — pure digit runs are rejected.
+    const phoneMatch = sigText.match(/(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/)
+    if (phoneMatch) out.phone = phoneMatch[0].trim()
+
+    // ---- Title ----
+    // Look for a line containing common title keywords. If multiple, prefer
+    // the one closest to the name line.
+    const TITLE_RX = /\b(CEO|CTO|CFO|COO|CMO|CPO|CIO|VP|EVP|SVP|President|Founder|Co-?founder|Owner|Partner|Principal|Director|Manager|Lead|Head\sof|Chief|Senior|Sr\.|Junior|Engineer|Producer|Operator|Operations|Cultivator|Cultivation|Compliance|Sales|Marketing|Account\sExecutive|AE|BDR|SDR|Consultant|Analyst|Coordinator|Specialist|Architect|Designer|Developer|Strategist|Advisor|Buyer|Procurement|Supply|Grower|Master\sGrower)\b/i
+    let titleLine = ''
+    for (const l of sigLines) {
+      if (l.includes('@') || l.includes('http')) continue // skip email/URL lines
+      if (TITLE_RX.test(l) && l.length < 80) { titleLine = l; break }
+    }
+    if (titleLine) {
+      // Strip trailing company info if separated by | / · ,
+      // e.g. "Director of Operations | Acme Cultivation" → keep both halves
+      // distinguishable for company extraction below.
+      out.title = titleLine.replace(/\s*\|\s*/g, ' | ').trim()
+    }
+
+    // ---- Company ----
+    // Heuristic: line with "at X", or " | X", or " - X" alongside a title,
+    // or a standalone line that LOOKS like a company (capitalized, not the
+    // person's name, not an email/url).
+    let company = ''
+    if (titleLine) {
+      // "Title at Company"
+      const atMatch = titleLine.match(/\b(?:at|@)\s+([A-Z][\w&'.\- ]{1,50})$/i)
+      if (atMatch) company = atMatch[1].trim()
+      else {
+        // "Title | Company" or "Title - Company" or "Title, Company"
+        const sepMatch = titleLine.match(/[,|\-·]\s*([A-Z][\w&'.\- ]{1,50})$/)
+        if (sepMatch) company = sepMatch[1].trim()
+      }
+    }
+    if (!company) {
+      // Look for a line that looks like a company (capitalized, no email,
+      // no URL, no obvious title keyword, after the name line).
+      for (const l of sigLines) {
+        if (l.includes('@') || l.includes('http') || /^\+?\d/.test(l)) continue
+        if (TITLE_RX.test(l)) continue
+        if (senderName && l.toLowerCase().includes(senderName.toLowerCase())) continue
+        if (/^[A-Z][\w&'.\- ]{1,50}$/.test(l) && l.split(/\s+/).length <= 6) {
+          company = l.trim()
+          break
+        }
+      }
+    }
+    // Filter false positives: short single words (likely greetings) like
+    // "Best", "Thanks", "Cheers", "Regards"
+    if (company && /^(best|thanks|cheers|regards|sincerely|warmly|cordially|warm regards)\b/i.test(company)) {
+      company = ''
+    }
+    out.companyName = company
+
+    // ---- Website ----
+    // First non-LinkedIn URL in the sig, or strip an email's domain.
+    const urlMatch = sigText.match(/(?:https?:\/\/)?(?:www\.)?([\w\-]+\.[a-z]{2,})(?:\/[^\s]*)?/gi)
+    if (urlMatch) {
+      for (const u of urlMatch) {
+        if (/linkedin\.com|gmail\.com|googlemail\.com|outlook\.com|yahoo\.com|hotmail\.com|protonmail\.com|icloud\.com/i.test(u)) continue
+        out.website = u.replace(/[.,;)]+$/, '')
+        break
+      }
+    }
+    // If still no website, derive from the sender's email domain (if it
+    // looks like a corporate domain, not a free-mail provider).
+    if (!out.website && senderEmail) {
+      const dom = (senderEmail.split('@')[1] || '').toLowerCase().trim()
+      if (dom && !/^(gmail|googlemail|outlook|yahoo|hotmail|protonmail|icloud|aol|fastmail|me|mac)\.\w+$/.test(dom)) {
+        out.website = 'https://' + dom
+      }
+    }
+
+    return out
   }
 
   // ============================================================
@@ -888,6 +1120,18 @@
       }
       .toast.ok { background: rgba(48, 179, 107, 0.10); color: var(--success); }
       .toast.err { background: rgba(239, 76, 76, 0.08); color: var(--danger); }
+
+      .sig-banner {
+        background: rgba(122, 94, 255, 0.08);
+        color: var(--brand-700);
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 11px;
+        line-height: 1.4;
+        margin-bottom: 10px;
+        border: 1px solid rgba(122, 94, 255, 0.18);
+      }
+      .sig-banner strong { color: var(--brand); }
 
       .muted { color: var(--muted); }
 

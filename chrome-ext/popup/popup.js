@@ -507,9 +507,26 @@ function showAddContactForm(email, formSlot, toastSlot) {
   const firstName = nameParts[0] || ''
   const lastName = nameParts.slice(1).join(' ') || ''
 
+  // Signature pre-parsed by content.js's readCurrentEmail (regex extractor
+  // for title / phone / company / LinkedIn). Auto-fills the form so the
+  // user only edits what's wrong.
+  const sig = email.signature || { title: '', phone: '', companyName: '', linkedinUrl: '', website: '' }
+  const extractedAny = !!(sig.phone || sig.title || sig.companyName || sig.linkedinUrl)
+
   formSlot.innerHTML = `
     <div class="form-drawer">
       <h3>Add contact</h3>
+      ${extractedAny ? `
+        <div class="sig-banner">
+          <strong>✨ Auto-filled from signature:</strong>
+          ${[
+            sig.title       ? 'title' : '',
+            sig.phone       ? 'phone' : '',
+            sig.companyName ? 'company' : '',
+            sig.linkedinUrl ? 'LinkedIn' : '',
+          ].filter(Boolean).join(' · ')} — review below.
+        </div>
+      ` : ''}
       <div class="row" style="gap: 8px;">
         <div class="field" style="flex: 1;">
           <label>First name</label>
@@ -524,6 +541,24 @@ function showAddContactForm(email, formSlot, toastSlot) {
         <label>Email</label>
         <input type="email" id="c-email" value="${escapeAttr(email.senderEmail)}" />
       </div>
+      <div class="field">
+        <label>Title</label>
+        <input type="text" id="c-title" value="${escapeAttr(sig.title)}" placeholder="Director of Operations" />
+      </div>
+      <div class="row" style="gap: 8px;">
+        <div class="field" style="flex: 1;">
+          <label>Phone</label>
+          <input type="tel" id="c-phone" value="${escapeAttr(sig.phone)}" placeholder="(555) 555-5555" />
+        </div>
+        <div class="field" style="flex: 1;">
+          <label>Company</label>
+          <input type="text" id="c-company" value="${escapeAttr(sig.companyName)}" placeholder="Acme Corp" />
+        </div>
+      </div>
+      <div class="field">
+        <label>LinkedIn</label>
+        <input type="url" id="c-linkedin" value="${escapeAttr(sig.linkedinUrl)}" placeholder="https://linkedin.com/in/…" />
+      </div>
       <div class="actions">
         <button class="btn btn-primary" id="save-contact">Add contact</button>
         <button class="btn btn-ghost" id="cancel-contact">Cancel</button>
@@ -533,6 +568,40 @@ function showAddContactForm(email, formSlot, toastSlot) {
   document.getElementById('cancel-contact').addEventListener('click', () => { formSlot.innerHTML = '' })
   document.getElementById('save-contact').addEventListener('click', async () => {
     showToast(toastSlot, '<span class="spinner"></span> Adding…', true)
+
+    const companyName = document.getElementById('c-company').value.trim()
+
+    // Resolve company → id (lookup or create) so the contact links cleanly.
+    let companyId = ''
+    if (companyName) {
+      try {
+        const crm = await sendBg({ type: 'GET_CRM_DATA' })
+        if (crm.ok) {
+          const existing = (crm.data.companies || []).find(
+            (c) => (c.name || '').toLowerCase().trim() === companyName.toLowerCase()
+          )
+          if (existing) {
+            companyId = existing.id
+          } else {
+            const created = await sendBg({
+              type: 'CALL_SCRIPT', action: 'write',
+              payload: {
+                entity: 'companies', op: 'create',
+                payload: {
+                  name: companyName,
+                  website: sig.website || '',
+                  industry: '', size: '', address: '', notes: '',
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                },
+              },
+            })
+            if (created.ok && created.data && created.data.id) companyId = created.data.id
+          }
+        }
+      } catch { /* fall through — contact gets blank companyId */ }
+    }
+
     const res = await sendBg({
       type: 'CALL_SCRIPT',
       action: 'write',
@@ -543,13 +612,13 @@ function showAddContactForm(email, formSlot, toastSlot) {
           firstName: document.getElementById('c-first').value.trim(),
           lastName: document.getElementById('c-last').value.trim(),
           email: document.getElementById('c-email').value.trim(),
-          phone: '',
-          title: '',
+          phone: document.getElementById('c-phone').value.trim(),
+          title: document.getElementById('c-title').value.trim(),
           role: '',
-          companyId: '',
+          companyId: companyId,
           status: 'new',
           state: '',
-          linkedinUrl: '',
+          linkedinUrl: document.getElementById('c-linkedin').value.trim(),
           tags: 'gmail-ext',
           createdAt: new Date().toISOString(),
         },
