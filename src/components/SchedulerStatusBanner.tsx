@@ -1,20 +1,33 @@
-// Scheduler trigger detector. The Apps Script `runScheduler` time-trigger has
-// to be installed once before any sequence emails will actually send. Without
-// it, enrollments queue but never fire — and the user has no way to know
-// (the UI optimistically shows enrollments as "active and scheduled").
+// Automation triggers detector. Apps Script time-based triggers must be
+// installed once before they ever run — and there are THREE that matter:
 //
-// This banner pings the backend on mount, and shows a one-click installer if
-// the trigger is missing AND there are active enrollments waiting to send.
-// Mounted at the AppShell level so it's visible from any page.
+//   runScheduler           — fires queued sequence emails (every 5 min)
+//   checkReplies           — marks enrollments stopped-reply when prospect
+//                            responds (every 5 min) — without this,
+//                            sequences keep firing after replies
+//   scanInboundEmailsCron  — logs inbound emails on contact activity
+//                            feeds (every 60 min)
+//
+// If any are missing, sequences either don't send, ignore replies, or hide
+// inbound emails. This banner detects ALL THREE and offers a one-click
+// install-everything button. Mounted globally in AppShell.
 
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Loader2, CheckCircle2 } from 'lucide-react'
 import { invokeAction, hasWriteBackend } from '../lib/api'
 import { useSheetData } from '../lib/sheet-context'
 
+interface AutomationStatus {
+  runScheduler: boolean
+  checkReplies: boolean
+  scanInboundEmailsCron: boolean
+  dailyDigestCron: boolean
+  allCriticalInstalled: boolean
+}
+
 export function SchedulerStatusBanner() {
   const { state } = useSheetData()
-  const [status, setStatus] = useState<{ installed: boolean } | null>(null)
+  const [status, setStatus] = useState<AutomationStatus | null>(null)
   const [checking, setChecking] = useState(true)
   const [installing, setInstalling] = useState(false)
   const [installResult, setInstallResult] = useState<{ ok: boolean; message: string } | null>(null)
@@ -29,16 +42,18 @@ export function SchedulerStatusBanner() {
     let alive = true
     ;(async () => {
       try {
-        const res = await invokeAction('getSchedulerStatus', {})
+        const res = await invokeAction('getAllAutomationStatus', {})
         if (!alive) return
         if (res.ok) {
-          setStatus((res as { data?: { installed: boolean } }).data || { installed: false })
+          setStatus((res as { data?: AutomationStatus }).data || null)
         }
       } catch {
-        // Backend out of date (no getSchedulerStatus action) — assume installed
-        // so we don't block UI on older deployments. User will know if their
-        // emails aren't sending.
-        if (alive) setStatus({ installed: true })
+        // Backend out of date — assume installed so we don't block the UI on
+        // older deployments. Once user pastes the latest Code.gs we'll detect.
+        if (alive) setStatus({
+          runScheduler: true, checkReplies: true, scanInboundEmailsCron: true,
+          dailyDigestCron: false, allCriticalInstalled: true,
+        })
       } finally {
         if (alive) setChecking(false)
       }
@@ -46,14 +61,18 @@ export function SchedulerStatusBanner() {
     return () => { alive = false }
   }, [])
 
-  const install = async () => {
+  const installAll = async () => {
     setInstalling(true)
     setInstallResult(null)
     try {
-      const res = await invokeAction('installSchedulerTrigger', {})
+      const res = await invokeAction('installAllAutomationTriggers', {})
       if (!res.ok) throw new Error(res.error || 'Failed to install')
-      setStatus({ installed: true })
-      setInstallResult({ ok: true, message: 'Scheduler installed. Sequence emails will start sending within 5 minutes.' })
+      const d = (res as { data?: { status?: AutomationStatus } }).data
+      if (d?.status) setStatus(d.status)
+      setInstallResult({
+        ok: true,
+        message: 'Automation triggers installed. Sequences will fire, replies will be detected, and inbound emails will land on contact pages — all within 5 minutes.',
+      })
     } catch (err) {
       setInstallResult({ ok: false, message: (err as Error).message })
     } finally {
@@ -61,23 +80,17 @@ export function SchedulerStatusBanner() {
     }
   }
 
-  // Don't render: still checking, or no backend, or trigger is healthy and no errors to show
+  // Don't render: still checking, no backend, or all good and nothing to confirm
   if (checking) return null
   if (!hasWriteBackend()) return null
-  if (status?.installed && !installResult) return null
+  if (status?.allCriticalInstalled && !installResult) return null
   if (dismissed) return null
 
-  // If the trigger is missing but there are zero active enrollments, soften the
-  // tone — show a small heads-up instead of the full red banner.
-  const isUrgent = !status?.installed && activeEnrollments > 0
-
-  if (status?.installed && installResult?.ok) {
+  if (status?.allCriticalInstalled && installResult?.ok) {
     return (
       <div className="px-4 lg:px-8 py-2 text-[12px] flex items-center gap-2 bg-[color:rgba(48,179,107,0.1)] border-soft-b">
         <CheckCircle2 size={13} className="text-[var(--color-success)] shrink-0" />
-        <div className="flex-1 min-w-0 text-body">
-          {installResult.message}
-        </div>
+        <div className="flex-1 min-w-0 text-body">{installResult.message}</div>
         <button
           onClick={() => setDismissed(true)}
           className="text-[var(--text-faint)] hover:text-body text-[11px] font-medium"
@@ -88,13 +101,21 @@ export function SchedulerStatusBanner() {
     )
   }
 
+  // Build a list of what's missing for the message
+  const missing: string[] = []
+  if (status && !status.runScheduler)          missing.push('sending sequence emails')
+  if (status && !status.checkReplies)          missing.push('detecting replies')
+  if (status && !status.scanInboundEmailsCron) missing.push('logging inbound emails on contact pages')
+
+  // Severity: if there are active enrollments AND any critical trigger is
+  // missing, this is URGENT (red). Otherwise just amber heads-up.
+  const isUrgent = (status && !status.allCriticalInstalled) && activeEnrollments > 0
+
   return (
     <div
       className={
         'px-4 lg:px-8 py-2.5 text-[12px] flex items-center gap-3 border-soft-b ' +
-        (isUrgent
-          ? 'bg-[color:rgba(239,76,76,0.1)]'
-          : 'bg-[color:rgba(245,165,36,0.1)]')
+        (isUrgent ? 'bg-[color:rgba(239,76,76,0.1)]' : 'bg-[color:rgba(245,165,36,0.1)]')
       }
     >
       <AlertTriangle
@@ -104,16 +125,14 @@ export function SchedulerStatusBanner() {
       <div className="flex-1 min-w-0">
         <span className="text-body font-medium">
           {isUrgent
-            ? `Sequence scheduler is OFF — ${activeEnrollments} enrollment${activeEnrollments === 1 ? '' : 's'} queued but not sending.`
-            : 'Sequence scheduler not installed.'}
+            ? `Hashio automation is OFF — ${activeEnrollments} active enrollment${activeEnrollments === 1 ? '' : 's'} affected.`
+            : 'Hashio automation needs setup.'}
         </span>{' '}
         <span className="text-muted">
-          {isUrgent
-            ? 'One-click fix to start sending: '
-            : "It's free; no downside. "}
+          Missing: {missing.join(', ') || 'one or more triggers'}.{' '}
         </span>
         <button
-          onClick={install}
+          onClick={installAll}
           disabled={installing}
           className="font-medium text-[var(--color-brand-700)] hover:text-[var(--color-brand-800)] dark:text-[var(--color-brand-300)] disabled:opacity-50"
         >
@@ -121,7 +140,7 @@ export function SchedulerStatusBanner() {
             <span className="inline-flex items-center gap-1">
               <Loader2 size={11} className="animate-spin" /> Installing…
             </span>
-          ) : 'Install scheduler trigger →'}
+          ) : 'Fix now (one click) →'}
         </button>
         {installResult && !installResult.ok && (
           <span className="ml-2 text-[var(--color-danger)]">{installResult.message}</span>

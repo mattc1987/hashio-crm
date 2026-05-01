@@ -492,6 +492,22 @@ function handle_(e) {
         break;
       }
 
+      case 'getAllAutomationStatus': {
+        // Reports install state of all critical automation triggers
+        // (sequence sender, reply detector, inbound scanner, daily digest).
+        out.ok = true;
+        out.data = getAllAutomationStatus_();
+        break;
+      }
+
+      case 'installAllAutomationTriggers': {
+        // One-click installer for all 3 critical triggers. Use this from the
+        // banner — kills the chance of any of them being silently missing.
+        out.ok = true;
+        out.data = installAllAutomationTriggers_();
+        break;
+      }
+
       case 'setEmailSignature': {
         // Save a custom signature override. Body: { plain, html? }. Pass empty
         // strings to both to clear the override and fall back to Gmail auto-detect.
@@ -923,6 +939,42 @@ function getSchedulerStatus_() {
     if (t.getHandlerFunction() === 'runScheduler') installed = true;
   });
   return { installed: installed };
+}
+
+/** Reports install state for all critical automation triggers in one call.
+ *  Each must be installed for sequences to work correctly:
+ *    runScheduler     — fires queued sequence emails (every 5 min)
+ *    checkReplies     — marks enrollment stopped-reply when prospect replies
+ *                       (every 5 min) — without this, sequences keep firing
+ *                       AFTER a prospect has replied
+ *    scanInboundEmailsCron — logs inbound emails on contact activity feed
+ *                            (every 60 min) */
+function getAllAutomationStatus_() {
+  const seen = { runScheduler: false, checkReplies: false, scanInboundEmailsCron: false, dailyDigestCron: false };
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    const fn = t.getHandlerFunction();
+    if (seen.hasOwnProperty(fn)) seen[fn] = true;
+  });
+  return {
+    runScheduler:           seen.runScheduler,
+    checkReplies:           seen.checkReplies,
+    scanInboundEmailsCron:  seen.scanInboundEmailsCron,
+    dailyDigestCron:        seen.dailyDigestCron,
+    // Convenience: are the three CRITICAL ones installed? (digest is opt-in)
+    allCriticalInstalled:   seen.runScheduler && seen.checkReplies && seen.scanInboundEmailsCron,
+  };
+}
+
+/** One-click installer for all three critical automation triggers. The
+ *  sequence-sender, reply-detector, and inbound-email scanner all need
+ *  triggers installed once before they ever run — this idempotently
+ *  ensures all three exist. Daily digest is opt-in, so not included. */
+function installAllAutomationTriggers_() {
+  const installed = [];
+  installSchedulerTrigger_();    installed.push('runScheduler (every 5 min)');
+  installReplyTrigger_();        installed.push('checkReplies (every 5 min)');
+  installInboundEmailTrigger_(); installed.push('scanInboundEmailsCron (every 60 min)');
+  return { installed: installed, status: getAllAutomationStatus_() };
 }
 
 /** Can be invoked manually or via time-trigger. */
@@ -2704,7 +2756,11 @@ function sendDailyDigest_(overrideRecipient) {
   const digest = buildDigestFromSheet_();
   const briefing = aiDashboardBriefing_({ digest: digest });
   const html = renderDigestHtml_(briefing, digest);
-  const subject = '☀️ Hashio BDR — ' + (briefing.greeting || 'Daily briefing');
+  // ASCII hyphen instead of em-dash, and skip the sun emoji in the subject
+  // line — some clients (esp. corporate Gmail / Outlook bridges) mis-decode
+  // UTF-8 multi-byte chars in subjects, turning "—" into "‚Äî" and emojis
+  // into mojibake. Body still uses the emoji where it renders fine.
+  const subject = 'Hashio BDR - ' + (briefing.greeting || 'Daily briefing');
 
   GmailApp.sendEmail(recipient, subject, briefingPlainText_(briefing, digest), {
     htmlBody: html,
@@ -4067,8 +4123,10 @@ function createBooking_(payload) {
     throw new Error('That slot was just taken — please pick another');
   }
 
-  // Create the calendar event with the booker as guest
-  const title = link.name + ' — ' + attendeeName;
+  // Create the calendar event with the booker as guest. Use a plain ASCII
+  // hyphen in the title (not an em-dash): some email/calendar clients
+  // mis-decode UTF-8 multi-byte chars in subjects and render "—" as "‚Äî".
+  const title = link.name + ' - ' + attendeeName;
   const description = (notes ? notes + '\n\n' : '') +
     'Booked via Hashio CRM\nLink: ' + link.slug + '\nAttendee: ' + attendeeName + ' <' + attendeeEmail + '>';
   const event = cal.createEvent(title, slotStart, slotEnd, {
