@@ -3424,10 +3424,40 @@ function checkReplies_() {
   const enrollmentsData = enrollmentsSheet.getDataRange().getValues();
   const enrollmentsHeaders = enrollmentsData[0].map(String);
 
+  // Build set of already-logged Gmail messageIds in ActivityLogs to dedup
+  // against scanInboundEmails_ (which logs the same reply via a different path).
+  // Both write to ActivityLogs.externalId = the Gmail messageId.
+  const loggedMessageIds = {};
+  const logsSheet = ss.getSheetByName('ActivityLogs');
+  if (logsSheet) {
+    const lData = logsSheet.getDataRange().getValues();
+    if (lData.length >= 2) {
+      const lHeaders = lData[0].map(String);
+      const extIdCol = lHeaders.indexOf('externalId');
+      const kindCol = lHeaders.indexOf('kind');
+      if (extIdCol >= 0 && kindCol >= 0) {
+        for (let r = 1; r < lData.length; r++) {
+          if (String(lData[r][kindCol]) === 'email-inbound') {
+            const eid = String(lData[r][extIdCol] || '');
+            if (eid) loggedMessageIds[eid] = true;
+          }
+        }
+      }
+    }
+  }
+
+  // Look back 30 days even on already-replied sends — handles the migration
+  // case where checkReplies_ ran (set repliedAt) but didn't yet log the reply
+  // body to ActivityLogs. Skipping any send that already has repliedAt would
+  // permanently hide those reply bodies from contact activity feeds.
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
   let updated = 0;
+  let inboundLogged = 0;
   for (let r = 1; r < sendsData.length; r++) {
     const send = rowToObj_(sendsHeaders, sendsData[r]);
-    if (send.repliedAt) continue;
+    // Skip ancient sends — saves Gmail API quota; nothing to fix retroactively.
+    if (send.repliedAt && new Date(send.repliedAt).getTime() < thirtyDaysAgo) continue;
     if (!send.threadId) continue;
     try {
       const thread = GmailApp.getThreadById(send.threadId);
@@ -3438,7 +3468,46 @@ function checkReplies_() {
       });
       if (replies.length > 0) {
         const replyDate = replies[0].getDate().toISOString();
-        applyRowUpdate_(sendsSheet, r + 1, sendsHeaders, { repliedAt: replyDate });
+        // Only set repliedAt the first time (don't overwrite existing timestamp)
+        if (!send.repliedAt) applyRowUpdate_(sendsSheet, r + 1, sendsHeaders, { repliedAt: replyDate });
+
+        // Log every reply message in this thread as an ActivityLog row so the
+        // body is visible on the contact's activity feed. Without this, the
+        // feed only shows the outbound email with a "replied" indicator, but
+        // not the actual reply text — defeating the whole point of an
+        // activity feed.
+        for (let m = 0; m < replies.length; m++) {
+          const reply = replies[m];
+          const messageId = reply.getId();
+          if (loggedMessageIds[messageId]) continue;
+
+          const replySubject = reply.getSubject() || '(no subject)';
+          // getPlainBody returns full body including quoted history. Reply
+          // text is at the top, quoted history below — slice to 1000 chars
+          // which captures the actual response in nearly every case.
+          const replyBody = (reply.getPlainBody() || '').replace(/\s+/g, ' ').slice(0, 1000);
+          const occurredAt = reply.getDate().toISOString();
+          try {
+            writeRow_('activityLogs', 'create', {
+              id: 'al' + Utilities.getUuid().replace(/-/g, '').slice(0, 10),
+              entityType: 'contact',
+              entityId: send.contactId || '',
+              kind: 'email-inbound',
+              outcome: '',
+              body: replySubject + (replyBody ? '\n\n' + replyBody : ''),
+              durationMinutes: 0,
+              occurredAt: occurredAt,
+              createdAt: new Date().toISOString(),
+              author: send.to,
+              externalId: messageId,
+            });
+            loggedMessageIds[messageId] = true;
+            inboundLogged++;
+          } catch (e) {
+            Logger.log('Failed to log reply activity ' + messageId + ': ' + (e && e.message));
+          }
+        }
+
         // Stop enrollment if step was configured that way
         for (let er = 1; er < enrollmentsData.length; er++) {
           const enr = rowToObj_(enrollmentsHeaders, enrollmentsData[er]);
@@ -3456,7 +3525,7 @@ function checkReplies_() {
       // swallow — thread may have been deleted
     }
   }
-  return { checked: sendsData.length - 1, updated: updated };
+  return { checked: sendsData.length - 1, updated: updated, inboundLogged: inboundLogged };
 }
 
 function respondTrackingPixel_(sendId) {
