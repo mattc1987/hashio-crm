@@ -46,6 +46,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: true, data })
           break
         }
+        case 'OPEN_OPTIONS': {
+          // Content scripts can't open the options page directly — proxy via background
+          chrome.runtime.openOptionsPage()
+          sendResponse({ ok: true })
+          break
+        }
         default:
           sendResponse({ ok: false, error: 'Unknown message type: ' + msg.type })
       }
