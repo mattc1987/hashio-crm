@@ -53,8 +53,16 @@
   }
 
   function readCurrentEmail() {
-    const subjectEl = document.querySelector('h2.hP, [data-thread-perm-id] h2, [role="main"] h2')
+    // Gmail's inbox, folder, and label views ALL contain h2 elements with
+    // their titles ("Inbox", "Sent", etc) — those aren't open-email signals.
+    // Only treat the page as "viewing an email" if we see real thread DOM:
+    //   - h2.hP exists ONLY on an open thread (the email subject heading)
+    //   - .gD (sender chip) exists ONLY inside a thread message
+    //   - URL hash typically looks like #inbox/<threadId> with a thread ID
+    const subjectEl = document.querySelector('h2.hP')
     if (!subjectEl) return null
+    const senderProbe = document.querySelector('[role="main"] .gD')
+    if (!senderProbe) return null
 
     const subject = (subjectEl.textContent || '').trim()
     const myEmail = getCurrentUserEmail()
@@ -208,18 +216,33 @@
   function wireSidebarEvents(shadow) {
     const collapseBtn = shadow.getElementById('collapse-btn')
     const header = shadow.querySelector('.header')
-    const toggle = (e) => {
-      // when expanded, only the explicit button toggles (so meta clicks don't collapse)
-      if (!collapsed && e.target !== collapseBtn) return
-      collapsed = !collapsed
+
+    function setCollapsed(next) {
+      collapsed = next
       applyCollapsedState()
       if (!collapsed) {
-        lastEmailKey = '' // force re-render
+        lastEmailKey = '' // force re-render with fresh data
         renderSidebar()
       }
     }
-    if (collapseBtn) collapseBtn.addEventListener('click', toggle)
-    if (header) header.addEventListener('click', toggle)
+
+    // Explicit collapse button — collapses when expanded. Stops propagation
+    // so the header click handler below doesn't immediately re-toggle.
+    if (collapseBtn) {
+      collapseBtn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        setCollapsed(!collapsed)
+      })
+    }
+
+    // Header click — only meaningful when COLLAPSED (lets you click the
+    // 44px circle to expand). When expanded, header clicks are ignored
+    // so accidental clicks don't collapse the panel.
+    if (header) {
+      header.addEventListener('click', () => {
+        if (collapsed) setCollapsed(false)
+      })
+    }
   }
 
   // ============================================================
