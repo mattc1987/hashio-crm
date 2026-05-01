@@ -475,6 +475,23 @@ function handle_(e) {
         break;
       }
 
+      case 'getSchedulerStatus': {
+        // Reports whether the runScheduler time-trigger is installed. The
+        // frontend uses this to show a "your sequences won't actually send"
+        // banner if the trigger is missing.
+        out.ok = true;
+        out.data = getSchedulerStatus_();
+        break;
+      }
+
+      case 'installSchedulerTrigger': {
+        // Installs the runScheduler trigger (every 5 min). Idempotent —
+        // safely re-runs.
+        out.ok = true;
+        out.data = installSchedulerTrigger_();
+        break;
+      }
+
       case 'setEmailSignature': {
         // Save a custom signature override. Body: { plain, html? }. Pass empty
         // strings to both to clear the override and fall back to Gmail auto-detect.
@@ -881,6 +898,31 @@ function uninstallSequenceTriggers() {
     }
   });
   Logger.log('Uninstalled all sequence triggers.');
+}
+
+/** Idempotent: ensures the runScheduler time-trigger exists. Returns
+ *  status object so the frontend can show install state. Called from the
+ *  /engagement page so the user never has to know the Apps Script editor
+ *  exists. */
+function installSchedulerTrigger_() {
+  // Wipe any existing runScheduler triggers first (avoids duplicates that
+  // would multiply scheduler firing, which doubles email sends).
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'runScheduler') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  ScriptApp.newTrigger('runScheduler').timeBased().everyMinutes(5).create();
+  return { ok: true, message: 'Scheduler trigger installed — runs every 5 minutes', installed: true };
+}
+
+/** Returns whether the runScheduler time-trigger is currently installed. */
+function getSchedulerStatus_() {
+  let installed = false;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'runScheduler') installed = true;
+  });
+  return { installed: installed };
 }
 
 /** Can be invoked manually or via time-trigger. */

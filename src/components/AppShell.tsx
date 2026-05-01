@@ -4,6 +4,7 @@ import { CloudOff } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { CommandPalette } from './CommandPalette'
+import { SchedulerStatusBanner } from './SchedulerStatusBanner'
 import { useSheet } from '../lib/useSheet'
 import { SheetDataContext } from '../lib/sheet-context'
 import { hasWriteBackend } from '../lib/api'
@@ -78,6 +79,7 @@ export function AppShell() {
               </div>
             </div>
           )}
+          <SchedulerStatusBanner />
           <main className="flex-1 px-4 lg:px-8 py-6 max-w-[1400px] w-full mx-auto">
             <Outlet />
           </main>
