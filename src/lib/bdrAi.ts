@@ -128,7 +128,11 @@ function buildContext(p: Proposal, data: SheetData) {
     ctx.recentActivity = recent
   }
 
-  // Prior email — for follow-ups, pull the last send to this contact
+  // Prior email + LAST INBOUND REPLY — pull the actual reply text from
+  // ActivityLogs (kind='email-inbound'). This is critical: without it, the
+  // AI is blind to what the prospect actually said back. If a prospect
+  // replied with hostility, the AI MUST see it to respond appropriately
+  // instead of cheerfully pushing for another meeting.
   try {
     const payload = JSON.parse(p.actionPayload || '{}') as Record<string, unknown>
     if (payload.replyToSendId) {
@@ -145,6 +149,22 @@ function buildContext(p: Proposal, data: SheetData) {
     }
   } catch {
     /* ignore */
+  }
+
+  // Find the most recent inbound email log (the prospect's actual reply)
+  // and pass its full body to the AI as `lastReply`. This is THE input the
+  // AI must respond to, distinct from `priorEmail` (Matt's last outbound).
+  if (contactId) {
+    const inbound = data.activityLogs
+      .filter((l) => l.entityType === 'contact' && l.entityId === contactId && l.kind === 'email-inbound')
+      .sort((a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || ''))[0]
+    if (inbound && inbound.body) {
+      ctx.lastReply = {
+        from: inbound.author || 'prospect',
+        receivedAt: inbound.occurredAt || '',
+        body: inbound.body.slice(0, 1500),
+      }
+    }
   }
 
   if (!ctx.goal) ctx.goal = 'Continue the conversation in a way that earns a reply.'
@@ -281,6 +301,27 @@ function buildSuggestionContext(entity: SuggestEntity, data: SheetData): Record<
       ctx.signals = sigs.slice(-10).map((s) => `${s.kind} on ${(s.ts || '').slice(0, 10)}${s.target ? ` (${s.target})` : ''}`)
     } catch {
       ctx.signals = []
+    }
+  }
+
+  // For task/contact/deal entities — pull the most recent inbound email
+  // (their actual reply text) so the AI sees what the prospect said, not
+  // just metadata. Without this, the AI is blind to a hostile reply and
+  // will cheerfully recommend "send another follow-up email."
+  let contactIdForReply = ''
+  if (entity.kind === 'contact')      contactIdForReply = entity.contact.id
+  else if (entity.kind === 'task')    contactIdForReply = entity.task.contactId
+  else if (entity.kind === 'deal')    contactIdForReply = entity.deal.contactId
+  if (contactIdForReply) {
+    const inbound = data.activityLogs
+      .filter((l) => l.entityType === 'contact' && l.entityId === contactIdForReply && l.kind === 'email-inbound')
+      .sort((a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || ''))[0]
+    if (inbound && inbound.body) {
+      ctx.lastReply = {
+        from: inbound.author || 'prospect',
+        receivedAt: inbound.occurredAt || '',
+        body: inbound.body.slice(0, 1500),
+      }
     }
   }
 

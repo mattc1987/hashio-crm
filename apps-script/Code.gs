@@ -1497,6 +1497,23 @@ function draftMessage_(payload) {
     'If the context contains a "bookingLinks" array, those are Matt\'s real scheduling URLs. Paste the FULL URL VERBATIM.\n' +
     'NEVER write [booking link], [URL], <link>, {{link}}, or any placeholder — the message ships as-is to the prospect.\n' +
     'NEVER invent calendly.com, hubspot.com, savvycal.com, etc — those will 404. If bookingLinks is empty, write "I\'ll send a few times that work" instead.\n\n' +
+    'CRITICAL — HOSTILITY / OPT-OUT / NEGATIVE REPLY HANDLING:\n' +
+    'If the prospect\'s reply (in the user message under "THEIR ACTUAL REPLY TO YOU") expresses ANY of:\n' +
+    '  - Anger or frustration ("stop emailing me", "this is annoying", "leave me alone", "too many emails")\n' +
+    '  - Confusion or annoyance ("why are you contacting me", "I never asked for this", "who is this")\n' +
+    '  - A clear "no" or "not interested" ("not a fit", "we don\'t need this", "no thanks", "not now")\n' +
+    '  - Aggressive or rude tone (curt one-liners, swearing, all-caps)\n' +
+    'You MUST do ALL of the following — no exceptions:\n' +
+    '  1. NEVER push for a meeting. NO booking link. NO "15 min chat?" NO "what\'s top of mind".\n' +
+    '  2. NEVER ask follow-up discovery questions ("cost tracking?" "compliance?" etc).\n' +
+    '  3. Acknowledge their reply DIRECTLY. Quote or paraphrase their actual words ("Sorry — I see you\'re frustrated about the volume of emails").\n' +
+    '  4. Apologize specifically for the thing they\'re upset about (frequency, mistargeted, irrelevant — match the cause).\n' +
+    '  5. Offer ONE clean exit: "I\'ll take you off our list. If anything changes, my email is matt@gohashio.com — otherwise no more from me."\n' +
+    '  6. Sign off "— Matt" with no CTA, no "looking forward", no "if you change your mind". Just the apology + opt-out + signature.\n' +
+    '  7. Subject line: "Re: <their last subject>" or simply "Apologies" — NEVER a new sales hook.\n' +
+    'If you cannot respect these rules given the context, return {"subject": "", "body": "[no-send: hostile reply, recommend manual handling]"} — Matt will write it himself.\n\n' +
+    'CRITICAL — POSITIVE REPLY HANDLING:\n' +
+    'If the prospect replied positively or with a question, RESPOND TO WHAT THEY ASKED — don\'t push past it to your own agenda. Their question is the priority.\n\n' +
     'Return ONLY a JSON object. No markdown, no preamble. Schema:\n' +
     (kind === 'sms'
       ? '{"body": "..."}'
@@ -1581,9 +1598,21 @@ function buildDraftPrompt_(ctx, instruction) {
   }
 
   if (ctx.priorEmail) {
-    lines.push('PRIOR EMAIL THREAD (their last reply / your last send):');
+    lines.push('YOUR LAST OUTBOUND TO THEM:');
     lines.push('  Subject: ' + (ctx.priorEmail.subject || ''));
     lines.push('  Body excerpt: ' + (ctx.priorEmail.body || '').slice(0, 400));
+    lines.push('');
+  }
+
+  if (ctx.lastReply) {
+    lines.push('!!! THEIR ACTUAL REPLY TO YOU (you MUST respond to what they said, not push your agenda):');
+    if (ctx.lastReply.from)        lines.push('  From: ' + ctx.lastReply.from);
+    if (ctx.lastReply.receivedAt)  lines.push('  Received: ' + ctx.lastReply.receivedAt);
+    lines.push('  Body: ' + (ctx.lastReply.body || '').slice(0, 1500));
+    lines.push('');
+    lines.push('READ THEIR REPLY CAREFULLY. If they expressed frustration, anger, asked you to stop, said they\'re not interested, ' +
+               'or are unhappy about something specific — DO NOT push for a meeting, DO NOT ask "what\'s top of mind", ' +
+               'DO NOT introduce a booking link. Acknowledge what they said directly. See the HOSTILITY/OPT-OUT rules in the system prompt.');
     lines.push('');
   }
 
@@ -1685,6 +1714,16 @@ function aiSuggestNextMove_(payload) {
     '- Pick the booking link whose name/duration best matches the goal (e.g. "15-min intro" for cold outreach, "30-min demo" for qualified).\n' +
     '- NEVER invent calendly.com, hubspot.com, savvycal.com, or any other URL — those domains are not Matt\'s and will 404.\n' +
     '- If bookingLinks is empty, write "I\'ll send a few times that work" instead of any URL or placeholder.\n\n' +
+    'CRITICAL — HOSTILITY / OPT-OUT / NEGATIVE REPLY HANDLING:\n' +
+    'If the context shows a recent reply expressing anger, frustration, "stop emailing me", confusion, "not interested", ' +
+    'or curt/aggressive tone, you MUST:\n' +
+    '  1. Set recommendedAction to "send-email" with an APOLOGY ONLY — never "make-call", never push for a meeting.\n' +
+    '  2. Acknowledge their actual words; apologize specifically for the cause (frequency, mistargeted, confusion).\n' +
+    '  3. Offer a clean exit: "I\'ll take you off our list — if anything changes, my email is matt@gohashio.com."\n' +
+    '  4. NO booking link. NO discovery questions ("what\'s top of mind", "cost tracking?", etc). NO "looking forward".\n' +
+    '  5. ALSO recommend in alternativeActions: "Set status=do-not-contact and remove from active sequences."\n' +
+    '  6. Lower confidence to 60 or below — Matt should review before send.\n' +
+    'If the situation is too sensitive for an automated reply, set recommendedAction="create-task" with taskTitle="Hostile reply — handle manually" and a clear note explaining what they said.\n\n' +
     'EXTRA INSTRUCTION FROM MATT (if present in the user message under "ADDITIONAL INSTRUCTION"): treat that as authoritative — incorporate it.\n\n' +
     'YOU MUST RETURN STRICT JSON — no markdown, no preamble, no code fences. Schema:\n' +
     '{\n' +
@@ -1701,7 +1740,22 @@ function aiSuggestNextMove_(payload) {
     'CALL GUIDANCE: pick make-call when the contact has a phone number, the situation is high-stakes (replied recently, hot lead, big deal stalled), and a written message is too cold. Voice-first when you have signal that they want a real conversation.\n';
 
   const extraInstruction = payload.instruction || '';
-  const userMessage = 'GOAL: ' + (goal || 'Suggest the single best next move.') + '\n\n' +
+
+  // Surface the most recent inbound reply (if any) at the top of the user
+  // message so the AI sees it before anything else. The CRM context object
+  // also includes it but burying it in JSON makes it easy for Claude to miss
+  // a hostile reply and default to "draft a follow-up sales email".
+  let replyHeader = '';
+  if (context && context.lastReply && context.lastReply.body) {
+    replyHeader = '!!! THE PROSPECT JUST REPLIED TO YOU. READ THIS FIRST AND RESPOND TO IT — DO NOT push past it to a sales pitch. !!!\n' +
+      'From: ' + (context.lastReply.from || 'prospect') + '\n' +
+      'When: ' + (context.lastReply.receivedAt || '') + '\n' +
+      'Their message: ' + String(context.lastReply.body).slice(0, 1500) + '\n\n' +
+      'Apply the HOSTILITY/OPT-OUT rules from your system prompt if their tone is angry, frustrated, "stop emailing me", "not interested", curt, or aggressive.\n\n';
+  }
+
+  const userMessage = replyHeader +
+    'GOAL: ' + (goal || 'Suggest the single best next move.') + '\n\n' +
     'ENTITY TYPE: ' + entityType + '\n\n' +
     'CONTEXT (JSON):\n' + JSON.stringify(context, null, 2) + '\n\n' +
     (extraInstruction ? 'ADDITIONAL INSTRUCTION FROM MATT — treat as authoritative:\n' + extraInstruction + '\n\n' : '') +
