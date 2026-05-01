@@ -11,21 +11,95 @@
   // Email-DOM scraping (shared by sidebar + popup)
   // ============================================================
 
+  /**
+   * Try to detect the current Gmail user's own email so we can filter THEM
+   * out of the sender list (otherwise on threads the user started, we'd
+   * always identify them as the prospect — which is the wrong contact card
+   * to render in the sidebar).
+   *
+   * Cached after first detection — Gmail doesn't change accounts mid-page.
+   */
+  let __cachedUserEmail = null
+  function getCurrentUserEmail() {
+    if (__cachedUserEmail !== null) return __cachedUserEmail
+
+    // 1. Best signal: the Google Account button's aria-label, e.g.
+    //    "Google Account: Matt Campbell\n(matt@gohashio.com)"
+    const accountLink = document.querySelector('a[aria-label*="@"]')
+    if (accountLink) {
+      const label = accountLink.getAttribute('aria-label') || ''
+      const m = label.match(/[\w.+-]+@[\w.-]+\.\w+/)
+      if (m) { __cachedUserEmail = m[0].toLowerCase(); return __cachedUserEmail }
+    }
+
+    // 2. Fallback: scan every [data-hovercard-id] (Gmail puts emails here).
+    //    The user's own address shows up MORE often than any single
+    //    correspondent in their own inbox (signature, sent stamps, etc.).
+    const counts = {}
+    document.querySelectorAll('[data-hovercard-id]').forEach(function (el) {
+      const e = (el.getAttribute('data-hovercard-id') || '').toLowerCase()
+      if (e && e.indexOf('@') > 0) counts[e] = (counts[e] || 0) + 1
+    })
+    let best = ''
+    let bestN = 0
+    Object.keys(counts).forEach(function (e) {
+      if (counts[e] > bestN) { bestN = counts[e]; best = e }
+    })
+    if (best && bestN >= 3) { __cachedUserEmail = best; return __cachedUserEmail }
+
+    // 3. Give up — content scripts can't read the user account directly.
+    __cachedUserEmail = ''
+    return ''
+  }
+
   function readCurrentEmail() {
     const subjectEl = document.querySelector('h2.hP, [data-thread-perm-id] h2, [role="main"] h2')
     if (!subjectEl) return null
 
     const subject = (subjectEl.textContent || '').trim()
+    const myEmail = getCurrentUserEmail()
+
+    // Collect every sender in the thread (one .gD per message). DOM order
+    // = oldest message first, latest at the bottom.
+    const senderEls = Array.from(document.querySelectorAll('[role="main"] .gD'))
+    let pick = null
+
+    // Walk newest-first; pick the most recent message NOT from the current
+    // Gmail user. That's the "other party" in the conversation, which is
+    // who the CRM card should be about.
+    for (let i = senderEls.length - 1; i >= 0; i--) {
+      const el = senderEls[i]
+      const email = (el.getAttribute('email') || '').toLowerCase()
+      if (email && (!myEmail || email !== myEmail)) { pick = el; break }
+    }
+
+    // If every message in this thread is from the user (e.g. a Sent-folder
+    // thread with no reply yet), look at the RECIPIENT instead. Gmail
+    // marks the "to" line of each message with .g2 / .hb / [email].
+    if (!pick) {
+      const recipientEls = Array.from(document.querySelectorAll('[role="main"] .g2, [role="main"] .hb [email]'))
+      for (let i = recipientEls.length - 1; i >= 0; i--) {
+        const el = recipientEls[i]
+        const email = (el.getAttribute('email') || '').toLowerCase()
+        if (email && (!myEmail || email !== myEmail)) { pick = el; break }
+      }
+    }
+
+    // Last-ditch fallback: any [email] attribute on the page that isn't ours.
+    if (!pick) {
+      const anyEls = Array.from(document.querySelectorAll('[role="main"] [email]'))
+      for (let i = anyEls.length - 1; i >= 0; i--) {
+        const el = anyEls[i]
+        const email = (el.getAttribute('email') || '').toLowerCase()
+        if (email && (!myEmail || email !== myEmail)) { pick = el; break }
+      }
+    }
+
     let senderName = ''
     let senderEmail = ''
-    const senderSpan = document.querySelector('[role="main"] .gD, [role="main"] [email]')
-    if (senderSpan) {
-      senderName = senderSpan.getAttribute('name') || (senderSpan.textContent || '').trim()
-      senderEmail = senderSpan.getAttribute('email') || ''
-    }
-    if (!senderEmail) {
-      const fb = document.querySelector('[role="main"] [email]')
-      if (fb) senderEmail = fb.getAttribute('email') || ''
+    if (pick) {
+      senderName = pick.getAttribute('name') || (pick.textContent || '').trim()
+      senderEmail = (pick.getAttribute('email') || '').toLowerCase()
     }
 
     let bodyPreview = ''
@@ -46,12 +120,14 @@
 
     return {
       senderName: senderName || senderEmail || '',
-      senderEmail: (senderEmail || '').toLowerCase(),
+      senderEmail: senderEmail,
       subject,
       bodyPreview,
       date,
       threadId,
       url: window.location.href,
+      // Useful for debugging: what email did the extension think was the user?
+      _myEmail: myEmail,
     }
   }
 
