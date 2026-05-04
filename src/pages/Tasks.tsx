@@ -156,6 +156,11 @@ export function Tasks() {
                       {t.dealId && <> · {dealTitle(t.dealId)}</>}
                       {t.contactId && <> · {contactName(t.contactId)}</>}
                     </div>
+                    {t.notes && (
+                      <div className="text-[11px] text-muted mt-1 line-clamp-2 leading-relaxed whitespace-pre-wrap">
+                        {t.notes}
+                      </div>
+                    )}
                   </button>
                   {hasWriteBackend() && !done && (
                     <button
