@@ -30,6 +30,10 @@ export interface SequenceBuildInput {
   goalDetail?: string         // freetext when goal === 'custom' or to add nuance
   audience?: string           // ICP description
   voiceSamples?: string       // pasted prior emails — Claude clones tone
+  /** Freeform "extra instructions" — guardrails / facts / things to AVOID.
+   *  e.g. "Don't mention METRC compliance — most of my targets are in
+   *  states without it" or "Avoid roadmap features; only what's live today". */
+  customInstructions?: string
   channels: SequenceChannel[]
   cadence: SequenceCadence
   enableBranches?: boolean    // default true

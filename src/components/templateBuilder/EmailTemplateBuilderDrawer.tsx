@@ -44,6 +44,7 @@ export function EmailTemplateBuilderDrawer({ open, onClose, defaultFolder, exist
   const [ctaType, setCtaType] = useState<CtaType>('auto')
   const [subjectStyle, setSubjectStyle] = useState<SubjectStyle>('auto')
   const [voiceSamples, setVoiceSamples] = useState('')
+  const [customInstructions, setCustomInstructions] = useState('')
   const [folder, setFolder] = useState(defaultFolder || '')
 
   // Editable preview
@@ -65,6 +66,7 @@ export function EmailTemplateBuilderDrawer({ open, onClose, defaultFolder, exist
     setCtaType('auto')
     setSubjectStyle('auto')
     setVoiceSamples('')
+    setCustomInstructions('')
     setFolder(defaultFolder || '')
   }
 
@@ -87,6 +89,7 @@ export function EmailTemplateBuilderDrawer({ open, onClose, defaultFolder, exist
         ctaType,
         subjectStyle,
         voiceSamples: voiceSamples.trim() || undefined,
+        customInstructions: customInstructions.trim() || undefined,
         folder: folder.trim() || undefined,
       }
       const result = await buildEmailTemplate(input)
@@ -186,6 +189,7 @@ export function EmailTemplateBuilderDrawer({ open, onClose, defaultFolder, exist
           ctaType={ctaType} setCtaType={setCtaType}
           subjectStyle={subjectStyle} setSubjectStyle={setSubjectStyle}
           voiceSamples={voiceSamples} setVoiceSamples={setVoiceSamples}
+          customInstructions={customInstructions} setCustomInstructions={setCustomInstructions}
           folder={folder} setFolder={setFolder}
           existingFolders={existingFolders}
         />
@@ -227,12 +231,14 @@ function ConfigureStep(props: {
   ctaType: CtaType; setCtaType: (v: CtaType) => void
   subjectStyle: SubjectStyle; setSubjectStyle: (v: SubjectStyle) => void
   voiceSamples: string; setVoiceSamples: (v: string) => void
+  customInstructions: string; setCustomInstructions: (v: string) => void
   folder: string; setFolder: (v: string) => void
   existingFolders: string[]
 }) {
   const { useCase, setUseCase, useCaseDetail, setUseCaseDetail, audience, setAudience,
     framework, setFramework, tone, setTone, length, setLength, ctaType, setCtaType,
     subjectStyle, setSubjectStyle, voiceSamples, setVoiceSamples,
+    customInstructions, setCustomInstructions,
     folder, setFolder, existingFolders } = props
 
   return (
@@ -291,6 +297,20 @@ function ConfigureStep(props: {
           placeholder="Paste a winning email here…"
           rows={5}
           className="text-[11px] font-mono"
+        />
+      </Section>
+
+      <Section
+        number={10}
+        title="Extra instructions (optional)"
+        hint="Tell the AI what to AVOID, what to emphasize, or facts to treat as ground truth. Overrides anything else if conflicts arise."
+      >
+        <Textarea
+          value={customInstructions}
+          onChange={(e) => setCustomInstructions(e.target.value)}
+          placeholder={`Examples — paste any of these or write your own:\n• Don't mention METRC compliance — most of my targets are in non-METRC states\n• Lead with cost-per-pound, not yield\n• We don't target retail/dispensaries\n• Avoid roadmap features — only what's live today\n• Reference our 18% average cost-per-pound reduction case study`}
+          rows={5}
+          className="text-[11px]"
         />
       </Section>
     </div>

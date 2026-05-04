@@ -48,6 +48,10 @@ export interface EmailTemplateBuildInput {
   ctaType: CtaType
   subjectStyle: SubjectStyle
   voiceSamples?: string
+  /** Freeform "extra instructions" — guardrails the AI must respect.
+   *  e.g. "Don't mention METRC — targets are in non-METRC states" or
+   *  "Lead with cost-per-pound, not yield". Stronger than `audience`. */
+  customInstructions?: string
   folder?: string  // e.g. "Cold outreach" — sets the saved category
 }
 

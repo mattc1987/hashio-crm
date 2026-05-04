@@ -48,6 +48,7 @@ export function SequenceBuilderDrawer({ open, onClose, onCreated }: Props) {
   const [goalDetail, setGoalDetail] = useState('')
   const [audience, setAudience] = useState('')
   const [voiceSamples, setVoiceSamples] = useState('')
+  const [customInstructions, setCustomInstructions] = useState('')
   const [channels, setChannels] = useState<SequenceChannel[]>(['email', 'linkedin'])
   const [cadence, setCadence] = useState<SequenceCadence>('standard')
   const [enableBranches, setEnableBranches] = useState(true)
@@ -60,6 +61,7 @@ export function SequenceBuilderDrawer({ open, onClose, onCreated }: Props) {
     setGoalDetail('')
     setAudience('')
     setVoiceSamples('')
+    setCustomInstructions('')
     setChannels(['email', 'linkedin'])
     setCadence('standard')
     setEnableBranches(true)
@@ -79,6 +81,7 @@ export function SequenceBuilderDrawer({ open, onClose, onCreated }: Props) {
         goalDetail: goalDetail.trim() || undefined,
         audience: audience.trim() || undefined,
         voiceSamples: voiceSamples.trim() || undefined,
+        customInstructions: customInstructions.trim() || undefined,
         channels,
         cadence,
         enableBranches,
@@ -195,6 +198,7 @@ export function SequenceBuilderDrawer({ open, onClose, onCreated }: Props) {
           goalDetail={goalDetail} setGoalDetail={setGoalDetail}
           audience={audience} setAudience={setAudience}
           voiceSamples={voiceSamples} setVoiceSamples={setVoiceSamples}
+          customInstructions={customInstructions} setCustomInstructions={setCustomInstructions}
           channels={channels} setChannels={setChannels}
           cadence={cadence} setCadence={setCadence}
           enableBranches={enableBranches} setEnableBranches={setEnableBranches}
@@ -232,6 +236,7 @@ function isFormValid({ goal, goalDetail, audience, channels }: { goal: SequenceG
 function ConfigureStep({
   goal, setGoal, goalDetail, setGoalDetail,
   audience, setAudience, voiceSamples, setVoiceSamples,
+  customInstructions, setCustomInstructions,
   channels, setChannels, cadence, setCadence,
   enableBranches, setEnableBranches,
 }: {
@@ -239,6 +244,7 @@ function ConfigureStep({
   goalDetail: string; setGoalDetail: (s: string) => void
   audience: string; setAudience: (s: string) => void
   voiceSamples: string; setVoiceSamples: (s: string) => void
+  customInstructions: string; setCustomInstructions: (s: string) => void
   channels: SequenceChannel[]; setChannels: (c: SequenceChannel[]) => void
   cadence: SequenceCadence; setCadence: (c: SequenceCadence) => void
   enableBranches: boolean; setEnableBranches: (v: boolean) => void
@@ -321,8 +327,23 @@ function ConfigureStep({
         />
       </Section>
 
-      {/* 4. Channels */}
-      <Section number={4} title="Channels">
+      {/* 3.5. Extra instructions / guardrails */}
+      <Section
+        number={4}
+        title="Extra instructions (optional)"
+        hint="Tell the AI what to AVOID, what to emphasize, or facts it should treat as ground truth. Overrides anything else if conflicts arise."
+      >
+        <Textarea
+          value={customInstructions}
+          onChange={(e) => setCustomInstructions(e.target.value)}
+          placeholder={`Examples — paste any of these or write your own:\n• Don't mention METRC compliance — most of my targets are in non-METRC states\n• Lead with cost-per-pound, not yield\n• We don't target retail/dispensaries\n• Avoid roadmap features — only mention what's live today\n• Reference our 18% average cost-per-pound reduction case study`}
+          rows={5}
+          className="text-[11px]"
+        />
+      </Section>
+
+      {/* 5. Channels */}
+      <Section number={5} title="Channels">
         <div className="flex flex-col gap-2">
           {CHANNEL_OPTIONS.map((c) => {
             const checked = channels.includes(c.value)
@@ -360,7 +381,7 @@ function ConfigureStep({
       </Section>
 
       {/* 5. Cadence */}
-      <Section number={5} title="Cadence intensity">
+      <Section number={6} title="Cadence intensity">
         <div className="grid grid-cols-3 gap-2">
           {CADENCE_OPTIONS.map((c) => (
             <button
@@ -387,7 +408,7 @@ function ConfigureStep({
       </Section>
 
       {/* 6. Branching */}
-      <Section number={6} title="Smart branching" hint="Generate different follow-ups based on opens, clicks, replies. Highly recommended.">
+      <Section number={7} title="Smart branching" hint="Generate different follow-ups based on opens, clicks, replies. Highly recommended.">
         <button
           onClick={() => setEnableBranches(!enableBranches)}
           className={cn(

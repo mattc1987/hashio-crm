@@ -2127,6 +2127,7 @@ function aiBuildEmailTemplate_(payload) {
   const length      = payload.length      || 'short';    // very-short / short / medium / long
   const ctaType     = payload.ctaType     || 'auto';     // auto / book-meeting / reply / question / resource / call
   const voiceSamples = payload.voiceSamples || '';
+  const customInstructions = payload.customInstructions || '';
   const folder      = payload.folder      || '';
   const subjectStyle = payload.subjectStyle || 'auto';   // auto / question / curiosity / personalized / short / specific
 
@@ -2225,6 +2226,7 @@ function aiBuildEmailTemplate_(payload) {
     '## SUBJECT LINE STYLE\n' +
     (subjectGuidance[subjectStyle] || subjectGuidance['auto']) + '\n\n' +
     (voiceSamples ? '## MATT\'S VOICE — match these samples\n' + voiceSamples + '\n\n' : '') +
+    (customInstructions ? '## EXTRA INSTRUCTIONS FROM MATT — TREAT AS AUTHORITATIVE\nThese override anything else if they conflict. They are guardrails Matt has set for this specific build:\n' + customInstructions + '\n\n' : '') +
     '## OUTPUT — STRICT JSON, NO MARKDOWN, NO PREAMBLE\n' +
     '{\n' +
     '  "name": "Short, descriptive template name (5-9 words, e.g. \\"Cold outreach — METRC reporting hook\\")",\n' +
@@ -2290,6 +2292,7 @@ function aiBuildSequence_(payload) {
   const goalDetail     = payload.goalDetail     || '';
   const audience       = payload.audience       || '';
   const voiceSamples   = payload.voiceSamples   || '';   // pasted prior emails
+  const customInstructions = payload.customInstructions || ''; // build-time guardrails
   const channels       = payload.channels       || ['email'];   // email/linkedin/sms/phone
   const cadence        = payload.cadence        || 'standard';  // light/standard/aggressive
   const enableBranches = payload.enableBranches !== false;
@@ -2391,7 +2394,8 @@ function aiBuildSequence_(payload) {
     'CHANNELS TO USE: ' + (channelGuidance.length ? channelGuidance.join(', ') : 'email only') + '\n' +
     'BRANCHING: ' + (enableBranches ? 'YES — design a branching response tree based on opens/clicks/replies' : 'NO — linear sequence only') + '\n' +
     (voiceSamples ? '\n## MATT\'S VOICE (study these prior emails to match his tone, sentence patterns, signoffs, and vocabulary)\n' + voiceSamples + '\n' : '') +
-    '\nGenerate the sequence now. Be detailed. Each email should reference specific, plausible value-props for cannabis cultivators (cost-per-pound, harvest scheduling, METRC compliance, multi-strain operations, multi-state expansion, GMP certification, regulatory audits, yield optimization, labor scheduling, etc.). Differentiate each touch — never reuse the same hook twice.';
+    (customInstructions ? '\n## EXTRA INSTRUCTIONS FROM MATT — TREAT AS AUTHORITATIVE\nThese guardrails override anything else if they conflict. Apply them to every email/SMS body, every subject, and the overall sequence design. Do NOT contradict them.\n' + customInstructions + '\n' : '') +
+    '\nGenerate the sequence now. Be detailed. Each email should reference specific, plausible value-props for cannabis cultivators (cost-per-pound, harvest scheduling, METRC compliance, multi-strain operations, multi-state expansion, GMP certification, regulatory audits, yield optimization, labor scheduling, etc.) — but NEVER mention something Matt\'s extra-instructions block told you to avoid. Differentiate each touch — never reuse the same hook twice.';
 
   const userMessage = 'Generate the JSON sequence definition. Match the schema exactly. Strict JSON only.';
 
