@@ -941,6 +941,7 @@ const DEMO_CONTACT = {
 const DEMO_COMPANY = {
   id: '', name: 'Acme Cultivation', industry: 'Cultivation',
   licenseCount: '', size: '', website: '', address: '', notes: '',
+  vertical: 'cultivator' as const, verticalConfidence: '', verticalSource: '',
   createdAt: '', updatedAt: '',
 }
 const DEMO_DEAL = {

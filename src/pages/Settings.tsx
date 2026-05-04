@@ -7,6 +7,7 @@ import { DailyDigestConfig } from '../components/settings/DailyDigestConfig'
 import { KnowledgeUsageConfig } from '../components/settings/KnowledgeUsageConfig'
 import { EmailSignatureConfig } from '../components/settings/EmailSignatureConfig'
 import { MergeTagDefaults } from '../components/settings/MergeTagDefaults'
+import { SendThrottleConfig } from '../components/settings/SendThrottleConfig'
 import { Card, CardHeader, PageHeader, Badge } from '../components/ui'
 import { getThemePref, setThemePref, type ThemePref } from '../lib/theme'
 import { hasWriteBackend } from '../lib/api'
@@ -123,6 +124,8 @@ export function Settings() {
       <EmailSignatureConfig />
 
       <MergeTagDefaults />
+
+      <SendThrottleConfig />
 
       <DailyDigestConfig />
 

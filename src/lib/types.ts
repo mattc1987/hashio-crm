@@ -15,6 +15,24 @@ export type BillingCycle = 'monthly' | 'quarterly' | 'annual' | ''
 export type TaskPriority = 'high' | 'medium' | 'low'
 export type TaskStatus = 'open' | 'completed' | 'cancelled'
 
+/** Cannabis vertical classification — what kind of operator is this?
+ *  Determines targeting + messaging:
+ *    cultivator = grow operations only
+ *    processor  = manufacturing / extraction / labs
+ *    vertical   = grow + processing (and sometimes retail). Best fit for Hashio.
+ *    retail    = dispensaries only — NOT a Hashio target
+ *    unknown   = not yet detected
+ */
+export type CompanyVertical = 'cultivator' | 'processor' | 'vertical' | 'retail' | 'unknown' | ''
+
+export const COMPANY_VERTICALS: { value: Exclude<CompanyVertical, ''>; label: string; description: string }[] = [
+  { value: 'cultivator', label: 'Cultivator', description: 'Grow / cultivation only' },
+  { value: 'processor',  label: 'Processor',  description: 'Manufacturing / extraction / labs' },
+  { value: 'vertical',   label: 'Vertical',   description: 'Cultivation + processing (sometimes retail)' },
+  { value: 'retail',     label: 'Retail',     description: 'Dispensary only — NOT a Hashio target' },
+  { value: 'unknown',    label: 'Unknown',    description: 'Not yet detected' },
+]
+
 export interface Company {
   id: string
   name: string
@@ -24,6 +42,13 @@ export interface Company {
   website: string
   address: string
   notes: string
+  /** What kind of cannabis operator. See CompanyVertical. */
+  vertical: CompanyVertical
+  /** Confidence 0-100 from the detector that filled this. */
+  verticalConfidence: string
+  /** Where the value came from: 'name-match' (regex on company name) /
+   *  'ai' (Claude inferred from name + state) / 'manual' (user-set). */
+  verticalSource: string
   createdAt: string
   updatedAt: string
 }

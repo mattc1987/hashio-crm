@@ -67,7 +67,7 @@ const TABS = {
  *  self-heal a Sheet that's missing columns or tabs. Any field the app
  *  tries to write that's not listed here still gets auto-appended. */
 const KNOWN_HEADERS_ = {
-  companies:     ['id','name','industry','licenseCount','size','website','address','notes','createdAt','updatedAt'],
+  companies:     ['id','name','industry','licenseCount','size','website','address','notes','vertical','verticalConfidence','verticalSource','createdAt','updatedAt'],
   contacts:      ['id','firstName','lastName','email','phone','title','role','companyId','status','state','linkedinUrl','tags','createdAt'],
   deals:         ['id','title','contactId','companyId','value','stage','probability','closeDate','mrr','billingCycle','billingMonth','contractStart','contractEnd','mrrStatus','notes','createdAt','updatedAt'],
   tasks:         ['id','title','dueDate','priority','contactId','dealId','notes','status','createdAt','updatedAt'],
@@ -467,6 +467,15 @@ function handle_(e) {
         break;
       }
 
+      case 'aiInferVerticalsBulk': {
+        // AI classifier: cannabis vertical (cultivator / processor / vertical / retail).
+        // Used as fallback after regex-based name detection. Body: { companies: [{id, name, state, website}, ...] }
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = aiInferVerticalsBulk_(payload);
+        break;
+      }
+
       case 'getEmailSignature': {
         // Returns { plain, html, source: 'custom'|'gmail'|'none' } — the signature
         // currently being appended to outgoing BDR/sequence emails.
@@ -529,6 +538,21 @@ function handle_(e) {
         const payload = safeJson_(params.payload) || {};
         out.ok = true;
         out.data = setMergeTagDefaults_(payload);
+        break;
+      }
+
+      case 'getSendThrottleConfig': {
+        // Returns the current per-tick send throttle settings.
+        out.ok = true;
+        out.data = getSendThrottleConfig_();
+        break;
+      }
+
+      case 'setSendThrottleConfig': {
+        // Saves throttle settings. Body: { config: { maxSendsPerTick, staggerMinMin, staggerMaxMin } }
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = setSendThrottleConfig_(payload);
         break;
       }
 
@@ -1023,7 +1047,40 @@ function runScheduler_(maxSteps) {
   const now = new Date();
   const nowIso = now.toISOString();
   let processed = 0;
+  let deferred = 0;
   const errors = [];
+
+  // ---- Per-tick send-rate limiter (anti-spam stagger) ----
+  // Gmail and prospect inboxes flag rapid-fire identical-template sends as
+  // suspicious. To avoid that, cap how many SEND steps (email/sms) fire per
+  // scheduler tick, and defer overflow with random offsets so enrollments
+  // trickle out instead of bunching. Wait/branch/action steps are always
+  // processed — they don't generate outbound traffic.
+  const props = PropertiesService.getScriptProperties();
+  const maxSendsPerTick   = Number(props.getProperty('MAX_SENDS_PER_TICK')   || '5');
+  const staggerMinMin     = Number(props.getProperty('STAGGER_DEFER_MIN_MIN') || '5');
+  const staggerMaxMin     = Number(props.getProperty('STAGGER_DEFER_MAX_MIN') || '25');
+  let sendsThisTick = 0;
+
+  // Pre-build a step-lookup so we can peek at the next step's type without
+  // re-fetching SequenceSteps for every enrollment in the loop.
+  const stepsSheet = ss.getSheetByName('SequenceSteps');
+  const stepsBySeq = {};
+  if (stepsSheet) {
+    const sd = stepsSheet.getDataRange().getValues();
+    if (sd.length >= 2) {
+      const sh = sd[0].map(String);
+      for (let r = 1; r < sd.length; r++) {
+        const obj = rowToObj_(sh, sd[r]);
+        if (!obj.sequenceId) continue;
+        if (!stepsBySeq[obj.sequenceId]) stepsBySeq[obj.sequenceId] = [];
+        stepsBySeq[obj.sequenceId].push(obj);
+      }
+      Object.keys(stepsBySeq).forEach(function (k) {
+        stepsBySeq[k].sort(function (a, b) { return Number(a.order) - Number(b.order); });
+      });
+    }
+  }
 
   for (let r = 1; r < data.length; r++) {
     if (processed >= maxSteps) break;
@@ -1031,10 +1088,32 @@ function runScheduler_(maxSteps) {
     if (row.status !== 'active') continue;
     if (row.nextFireAt && new Date(row.nextFireAt) > now) continue;
 
+    // Throttle: if this enrollment is about to fire a send step AND we've
+    // hit the per-tick cap, defer with a randomized offset so the queue
+    // drains over the next ~25 min instead of bunching at the next tick.
+    const seqSteps = stepsBySeq[row.sequenceId] || [];
+    const stepIdx = Number(row.currentStepIndex) || 0;
+    const peek = seqSteps[stepIdx];
+    const isSend = peek && (peek.type === 'email' || peek.type === 'sms');
+
+    if (isSend && sendsThisTick >= maxSendsPerTick) {
+      const range = Math.max(1, staggerMaxMin - staggerMinMin);
+      const offsetMin = staggerMinMin + Math.random() * range;
+      const deferTo = new Date(now.getTime() + offsetMin * 60 * 1000);
+      applyEnrollmentUpdate_(enrollmentsSheet, r + 1, headers, {
+        nextFireAt: deferTo.toISOString(),
+        notes: (row.notes ? row.notes + ' | ' : '') +
+               'Throttled — deferred ' + Math.round(offsetMin) + ' min (anti-spam stagger)',
+      });
+      deferred++;
+      continue;
+    }
+
     try {
       const result = advanceEnrollment_(row);
       applyEnrollmentUpdate_(enrollmentsSheet, r + 1, headers, result);
       processed++;
+      if (isSend) sendsThisTick++;
     } catch (err) {
       errors.push({ id: row.id, error: String(err && err.message) });
       applyEnrollmentUpdate_(enrollmentsSheet, r + 1, headers, {
@@ -1045,7 +1124,7 @@ function runScheduler_(maxSteps) {
     }
   }
 
-  return { processed: processed, errors: errors };
+  return { processed: processed, deferred: deferred, errors: errors };
 }
 
 function advanceEnrollment_(enrollment) {
@@ -2861,6 +2940,79 @@ function aiCompactKnowledge_() {
 }
 
 
+/* ---------- AI vertical inference (for cannabis companies) -----------
+ *  Used when the regex-based name detector returns 'unknown' or low
+ *  confidence. Sends name + state (+ optional website) to Claude and asks
+ *  for the vertical: cultivator / processor / vertical / retail / unknown.
+ *
+ *  Bulk endpoint accepts up to 30 companies in one call to stay within
+ *  Anthropic's request limits while still being efficient. */
+
+function aiInferVerticalsBulk_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured.');
+
+  const companies = Array.isArray(payload && payload.companies) ? payload.companies : [];
+  if (!companies.length) return { results: [] };
+  // Cap at 30 to keep response tokens reasonable.
+  const trimmed = companies.slice(0, 30);
+
+  const systemPrompt =
+    'You classify CANNABIS COMPANIES by operating vertical. Possible labels:\n' +
+    '  cultivator — grow / cultivation only (no processing)\n' +
+    '  processor  — manufacturing / extraction / labs / edibles / vapes (no grow)\n' +
+    '  vertical   — runs cultivation AND processing (and sometimes retail). Best fit for Hashio.\n' +
+    '  retail     — dispensary / storefront only\n' +
+    '  unknown    — not enough information to classify confidently\n\n' +
+    'Use your training-data knowledge of US cannabis companies. The user will give you each company name + state. ' +
+    'For each, return the most likely label, a confidence score 0-100, and a one-line rationale.\n\n' +
+    'Be conservative — when in doubt, return "unknown" rather than guessing. False positives waste outreach budget.\n\n' +
+    'Strict JSON only:\n' +
+    '{ "results": [\n' +
+    '  { "id": "<from input>", "vertical": "cultivator"|"processor"|"vertical"|"retail"|"unknown", "confidence": 0-100, "reasoning": "1 short sentence" }\n' +
+    '] }';
+
+  const userPayload = trimmed.map(function (c) {
+    return {
+      id: c.id,
+      name: c.name,
+      state: c.state || '',
+      website: c.website || '',
+    };
+  });
+  const userMessage = 'Classify these companies. Match results to the same `id` you receive.\n\n' +
+    JSON.stringify(userPayload, null, 2);
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': ANTHROPIC_API_VERSION_,
+    },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 2000,
+      // No company-context wrapping — vertical inference is a discrete
+      // classification task, irrelevant to Matt's voice or ICP context.
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  let parsed = { results: [] };
+  try { parsed = JSON.parse(cleaned); } catch (e) { /* leave empty */ }
+  parsed.model = model;
+  return parsed;
+}
+
+
 /* ---------- Daily Digest — 8am proactive briefing email ---------- */
 /* Time-trigger fires every morning, builds a digest from the Sheet,
  * calls aiDashboardBriefing_, and emails Matt the priorities. The
@@ -3964,6 +4116,26 @@ const HARDCODED_MERGE_FALLBACKS_ = {
 function getMergeTagDefaults_() {
   const raw = PropertiesService.getScriptProperties().getProperty('MERGE_TAG_DEFAULTS') || '{}';
   try { return JSON.parse(raw) || {}; } catch (e) { return {}; }
+}
+
+/** Read send-throttle settings (defaults baked in if not configured). */
+function getSendThrottleConfig_() {
+  const props = PropertiesService.getScriptProperties();
+  return {
+    maxSendsPerTick: Number(props.getProperty('MAX_SENDS_PER_TICK')   || '5'),
+    staggerMinMin:   Number(props.getProperty('STAGGER_DEFER_MIN_MIN') || '5'),
+    staggerMaxMin:   Number(props.getProperty('STAGGER_DEFER_MAX_MIN') || '25'),
+  };
+}
+
+/** Save send-throttle settings. Body: { config: { maxSendsPerTick, staggerMinMin, staggerMaxMin } } */
+function setSendThrottleConfig_(payload) {
+  const cfg = (payload && payload.config) || {};
+  const props = PropertiesService.getScriptProperties();
+  if (cfg.maxSendsPerTick !== undefined) props.setProperty('MAX_SENDS_PER_TICK', String(Math.max(1, Number(cfg.maxSendsPerTick) || 5)));
+  if (cfg.staggerMinMin !== undefined)   props.setProperty('STAGGER_DEFER_MIN_MIN', String(Math.max(1, Number(cfg.staggerMinMin) || 5)));
+  if (cfg.staggerMaxMin !== undefined)   props.setProperty('STAGGER_DEFER_MAX_MIN', String(Math.max(2, Number(cfg.staggerMaxMin) || 25)));
+  return getSendThrottleConfig_();
 }
 
 /** Save (merge) merge-tag defaults. Body: { firstName: 'there', company: 'your team', ... }

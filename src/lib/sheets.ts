@@ -72,6 +72,9 @@ function mapCompanies(rows: Record<string, string>[]): Company[] {
     website: r.website || '',
     address: r.address || '',
     notes: r.notes || '',
+    vertical: ((r.vertical as Company['vertical']) || ''),
+    verticalConfidence: r.verticalConfidence || '',
+    verticalSource: r.verticalSource || '',
     createdAt: r.createdAt || '',
     updatedAt: r.updatedAt || '',
   }))

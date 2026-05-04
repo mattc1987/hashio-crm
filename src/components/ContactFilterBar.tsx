@@ -115,6 +115,7 @@ export function ContactFilterBar({ state, setState, contacts, companies, totalCo
               statuses={allStatuses}
               roles={allRoles}
               companies={companies}
+              contacts={contacts}
               onClose={() => setPopoverOpen(false)}
             />
           )}
@@ -228,7 +229,7 @@ function SavedViewChip({
 // ============================================================
 
 function AddFilterPopover({
-  state, setState, tags, states, statuses, roles, companies, onClose,
+  state, setState, tags, states, statuses, roles, companies, contacts, onClose,
 }: {
   state: ContactFilterState
   setState: (s: ContactFilterState) => void
@@ -237,6 +238,7 @@ function AddFilterPopover({
   statuses: string[]
   roles: string[]
   companies: Company[]
+  contacts: Contact[]
   onClose: () => void
 }) {
   const [section, setSection] = useState<string | null>(null)
@@ -262,6 +264,7 @@ function AddFilterPopover({
       {section === null ? (
         <div className="p-1 max-h-[420px] overflow-y-auto">
           <SectionButton label="Role / Department" hint={`${roles.length} options`} onClick={() => setSection('roles')} />
+          <SectionButton label="Title contains" hint="Substring match — VP, Director, Head of, etc." onClick={() => setSection('titles')} />
           <SectionButton label="Tag" hint={`${tags.length} options`} onClick={() => setSection('tags')} />
           <SectionButton label="State / region" hint={`${states.length} options`} onClick={() => setSection('states')} />
           <SectionButton label="Status" hint={`${statuses.length} options`} onClick={() => setSection('statuses')} />
@@ -347,6 +350,13 @@ function AddFilterPopover({
                 selected={state.companyIds}
                 onChange={(v) => setState({ ...state, companyIds: v })}
                 emptyMsg="No companies yet."
+              />
+            )}
+            {section === 'titles' && (
+              <TitleSubstringFilter
+                contacts={contacts}
+                selected={state.titlesContain}
+                onChange={(v) => setState({ ...state, titlesContain: v })}
               />
             )}
             {section === 'activity' && (
@@ -467,6 +477,122 @@ function MultiSelect({
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * TitleSubstringFilter — type any number of substrings, each match-as-OR.
+ * Suggests common phrases pulled from existing contacts' titles (top words
+ * after dropping stopwords) so users don't have to remember the exact
+ * phrasing.
+ *
+ * Pattern matching is case-insensitive `.includes()`, so:
+ *   "VP" matches "VP of Cultivation", "Senior VP", etc.
+ *   "Director" matches "Director of Operations", "Sales Director", etc.
+ *   Any free-text the user types is honored verbatim.
+ */
+function TitleSubstringFilter({
+  contacts, selected, onChange,
+}: {
+  contacts: Contact[]
+  selected: string[]
+  onChange: (v: string[]) => void
+}) {
+  const [draft, setDraft] = useState('')
+
+  // Compute a list of suggested substrings from existing titles. Pulls common
+  // role keywords that appear ≥2 times across the contact base.
+  const suggestions = useMemo(() => {
+    const STOP = new Set(['of', 'the', 'and', '&', 'at', 'for', 'in', 'a', 'an', 'to', '/'])
+    const counts = new Map<string, number>()
+    for (const c of contacts) {
+      if (!c.title) continue
+      // Split on / | , - · and whitespace; keep meaningful tokens
+      const tokens = c.title.split(/[\s/|,·\-]+/).map((t) => t.trim()).filter(Boolean)
+      for (const tok of tokens) {
+        if (tok.length < 2) continue
+        if (STOP.has(tok.toLowerCase())) continue
+        // Only keep title-cased or all-caps tokens (skip lowercase noise)
+        if (!/^[A-Z]/.test(tok) && !/^[A-Z]{2,}$/.test(tok)) continue
+        counts.set(tok, (counts.get(tok) || 0) + 1)
+      }
+    }
+    return Array.from(counts.entries())
+      .filter(([, n]) => n >= 2)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 18)
+      .map(([t]) => t)
+  }, [contacts])
+
+  const addToken = (val: string) => {
+    const v = val.trim()
+    if (!v) return
+    if (selected.some((s) => s.toLowerCase() === v.toLowerCase())) return
+    onChange([...selected, v])
+    setDraft('')
+  }
+
+  return (
+    <div className="flex flex-col gap-2 px-1">
+      <div className="px-2 pt-1">
+        <Input
+          placeholder='Type and press Enter — e.g. "Director", "VP", "Head of"'
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); addToken(draft) }
+            if (e.key === 'Backspace' && !draft && selected.length) {
+              onChange(selected.slice(0, -1))
+            }
+          }}
+          className="text-[12px] h-7"
+          autoFocus
+        />
+        <div className="text-[10px] text-[var(--text-faint)] mt-1">
+          Substring match — "VP" matches "Senior VP of Cultivation", etc. Multiple values match as OR.
+        </div>
+      </div>
+
+      {selected.length > 0 && (
+        <div className="px-2 flex flex-wrap gap-1">
+          {selected.map((s) => (
+            <button
+              key={s}
+              onClick={() => onChange(selected.filter((x) => x !== s))}
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-[var(--radius-sm)] bg-[color:rgba(122,94,255,0.10)] text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)] hover:bg-[color:rgba(122,94,255,0.18)]"
+            >
+              {s}
+              <X size={10} />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {suggestions.length > 0 && (
+        <div className="px-2 pb-2 border-soft-t pt-2">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--text-faint)] mb-1">Common in your CRM</div>
+          <div className="flex flex-wrap gap-1">
+            {suggestions.map((s) => {
+              const isSelected = selected.some((x) => x.toLowerCase() === s.toLowerCase())
+              return (
+                <button
+                  key={s}
+                  onClick={() => isSelected ? onChange(selected.filter((x) => x.toLowerCase() !== s.toLowerCase())) : addToken(s)}
+                  className={cn(
+                    'inline-flex items-center px-2 py-0.5 text-[11px] rounded-[var(--radius-sm)] hover:surface-2 transition-colors',
+                    isSelected
+                      ? 'bg-[color:rgba(122,94,255,0.10)] text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)]'
+                      : 'surface border-soft text-muted hover:text-body',
+                  )}
+                >
+                  {s}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

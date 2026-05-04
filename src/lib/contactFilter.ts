@@ -28,6 +28,10 @@ export interface ContactFilterState {
   states: string[]
   statuses: string[]
   roles: string[]
+  /** Title substring filter — OR within the array. Each entry is a
+   *  case-insensitive substring; a contact matches if ANY entry is
+   *  contained in their title. Examples: ["VP", "Director", "Head of"]. */
+  titlesContain: string[]
   companyIds: string[]
   hasEmail: Tristate
   hasPhone: Tristate
@@ -43,6 +47,7 @@ export const EMPTY_FILTER: ContactFilterState = {
   states: [],
   statuses: [],
   roles: [],
+  titlesContain: [],
   companyIds: [],
   hasEmail: null,
   hasPhone: null,
@@ -135,6 +140,13 @@ export function applyContactFilter(
       if (!roleSet.has((c.role || '').toLowerCase())) return false
     }
 
+    // Title substring (OR within the list — match if title contains ANY pattern)
+    if (state.titlesContain && state.titlesContain.length > 0) {
+      const lowerTitle = (c.title || '').toLowerCase()
+      const anyMatch = state.titlesContain.some((p) => lowerTitle.includes(p.toLowerCase().trim()))
+      if (!anyMatch) return false
+    }
+
     // Companies (OR)
     if (companySet.size > 0) {
       if (!companySet.has(c.companyId || '')) return false
@@ -218,6 +230,12 @@ export function describeActiveChips(state: ContactFilterState): ActiveChip[] {
       onRemove: (s) => ({ ...s, roles: s.roles.filter((x) => x !== role) }),
     })
   }
+  for (const t of state.titlesContain) {
+    chips.push({
+      key: `title:${t}`, label: `Title contains: ${t}`,
+      onRemove: (s) => ({ ...s, titlesContain: s.titlesContain.filter((x) => x !== t) }),
+    })
+  }
   for (const c of state.companyIds) {
     chips.push({
       key: `company:${c}`, label: `Company set`,
@@ -281,6 +299,7 @@ export function isFilterEmpty(s: ContactFilterState): boolean {
     s.states.length === 0 &&
     s.statuses.length === 0 &&
     s.roles.length === 0 &&
+    (!s.titlesContain || s.titlesContain.length === 0) &&
     s.companyIds.length === 0 &&
     s.hasEmail === null &&
     s.hasPhone === null &&
