@@ -44,6 +44,7 @@ import type {
   StepType,
 } from '../lib/types'
 import { cn } from '../lib/cn'
+import { SequenceFlowView } from '../components/sequenceBuilder/SequenceFlowView'
 
 const STEP_TYPES: Array<{ type: StepType; label: string; icon: React.ReactNode; desc: string }> = [
   { type: 'email',  label: 'Send email',    icon: <Mail size={14} />,   desc: 'Sends from your Gmail via Apps Script' },
@@ -67,6 +68,7 @@ export function SequenceEditor() {
   }, [data, id])
 
   const [editing, setEditing] = useState<string | null>(steps[0]?.id ?? null)
+  const [viewMode, setViewMode] = useState<'list' | 'flow'>('list')
   useEffect(() => {
     if (!editing && steps.length) setEditing(steps[0].id)
   }, [steps, editing])
@@ -215,6 +217,44 @@ export function SequenceEditor() {
         </div>
       </div>
 
+      {/* View toggle: list view (edit-friendly) vs flow view (visual + health checks) */}
+      <div className="flex items-center gap-1 surface-2 rounded-[var(--radius-md)] p-1 self-start mb-4">
+        <button
+          onClick={() => setViewMode('list')}
+          className={cn(
+            'px-3 py-1.5 rounded-[var(--radius-sm)] text-[12px] font-medium transition-colors',
+            viewMode === 'list'
+              ? 'bg-[var(--surface)] text-body shadow-sm'
+              : 'text-muted hover:text-body',
+          )}
+        >
+          List view
+        </button>
+        <button
+          onClick={() => setViewMode('flow')}
+          className={cn(
+            'px-3 py-1.5 rounded-[var(--radius-sm)] text-[12px] font-medium transition-colors',
+            viewMode === 'flow'
+              ? 'bg-[var(--surface)] text-body shadow-sm'
+              : 'text-muted hover:text-body',
+          )}
+          title="Visual graph of branches and step paths — spot orphans and uncovered branch arms"
+        >
+          Flow view
+        </button>
+      </div>
+
+      {viewMode === 'flow' && (
+        <Card>
+          <SequenceFlowView
+            steps={steps}
+            selectedStepId={editing}
+            onStepClick={(id) => { setEditing(id); setViewMode('list') }}
+          />
+        </Card>
+      )}
+
+      {viewMode === 'list' && (
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_1.4fr] gap-6">
         {/* ---------------- Step list ---------------- */}
         <Card padded={false}>
@@ -294,6 +334,7 @@ export function SequenceEditor() {
           )}
         </div>
       </div>
+      )}
     </div>
   )
 }
