@@ -476,6 +476,16 @@ function handle_(e) {
         break;
       }
 
+      case 'aiReviseSequence': {
+        // Surgical revisor: takes a sequence + targeted user feedback, returns
+        // an ordered change list (patch/insert/delete) the frontend applies.
+        // Body: { steps: [...], targetStepIdx?: N, feedback: "...", goalContext?: {...} }
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = aiReviseSequence_(payload);
+        break;
+      }
+
       case 'getEmailSignature': {
         // Returns { plain, html, source: 'custom'|'gmail'|'none' } — the signature
         // currently being appended to outgoing BDR/sequence emails.
@@ -2941,6 +2951,130 @@ function aiCompactKnowledge_() {
     estimatedTokensOut: Math.round(compact.length / 4),
     model: model,
   };
+}
+
+
+/* ---------- AI sequence revisor — inline edit with feedback ----------
+ *  User views their sequence in the flow visualizer, spots a problem
+ *  ("this branch fires a breakup after one unopened email — make no
+ *  sense"), picks a step, types feedback. This action produces an
+ *  ordered list of changes (patch / insert / delete) that the frontend
+ *  applies via the existing api.sequenceStep CRUD.
+ *
+ *  Input: { steps: [...full step list...], targetStepIdx: 0-based or null,
+ *           feedback: "free text",
+ *           goalContext: { goal, audience, channels } from original build }
+ *  Output: { rationale, changes: [...], summary }
+ *
+ *  Each change is one of:
+ *    { action: 'patch',  stepIdx: N, label: '...', config: {...} }
+ *      → updates an existing step's label + config
+ *    { action: 'insert', afterStepIdx: N, step: { type, label, config } }
+ *      → creates a new step right after the given index
+ *    { action: 'delete', stepIdx: N }
+ *      → removes the step entirely
+ *
+ *  ALL stepIdx values refer to the ORIGINAL list (pre-application). The
+ *  client applies changes in the returned order; for inserts/deletes it
+ *  tracks an index shift so subsequent operations land where intended.
+ */
+
+function aiReviseSequence_(payload) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const model = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_MODEL') || ANTHROPIC_DEFAULT_MODEL_;
+  if (!key) throw new Error('Anthropic not configured.');
+
+  const steps         = Array.isArray(payload.steps) ? payload.steps : [];
+  const targetStepIdx = (payload.targetStepIdx === undefined || payload.targetStepIdx === null) ? null : Number(payload.targetStepIdx);
+  const feedback      = (payload.feedback || '').toString().trim();
+  const goalContext   = payload.goalContext || {};
+  if (!feedback) throw new Error('Feedback is required.');
+  if (steps.length === 0) throw new Error('Sequence has no steps to revise.');
+
+  const stepsBlock = steps.map(function (s, i) {
+    return JSON.stringify({
+      index: i,
+      type: s.type,
+      label: s.label || ('Step ' + (i + 1)),
+      config: s.config,  // already-parsed JSON object on the way in
+    });
+  }).join('\n');
+
+  const targetBlock = (targetStepIdx !== null && targetStepIdx >= 0 && targetStepIdx < steps.length)
+    ? ('TARGET STEP: index ' + targetStepIdx + ' (the user clicked this one — focus your changes here unless feedback explicitly says otherwise).\n')
+    : 'TARGET STEP: none — the user is asking about the whole sequence.\n';
+
+  const goalBlock = (goalContext.goal || goalContext.audience || goalContext.channels)
+    ? ('ORIGINAL BUILD CONTEXT:\n' + JSON.stringify(goalContext, null, 2) + '\n\n')
+    : '';
+
+  const systemPrompt =
+    'You are an expert BDR sequence revisor. The user (Matt Campbell, founder of Hashio Inc., B2B SaaS for cannabis cultivators) ' +
+    'has built a multi-step outreach sequence and is asking you to revise it based on specific feedback. Your job: produce a ' +
+    'minimal, surgical change list that addresses the feedback without rewriting unrelated parts.\n\n' +
+    '## CHANGE TYPES (use the smallest set that does the job)\n' +
+    '  patch  — update an existing step\'s label and/or config. Use for "rewrite this email", "change the wait length", "fix the branch arm". stepIdx required.\n' +
+    '  insert — add a new step AFTER an existing step. Use when feedback implies a missing step ("add a wait before the breakup", "try a different angle in between"). afterStepIdx required.\n' +
+    '  delete — remove a step entirely. Use when feedback says "this step is wrong, take it out". stepIdx required.\n\n' +
+    '## CRITICAL RULES\n' +
+    '1. ALL stepIdx values refer to the ORIGINAL pre-revision list — do NOT pre-apply your own inserts/deletes when picking indices.\n' +
+    '2. Keep changes minimal. If feedback is "rewrite the breakup email", emit ONE patch — do not also rewrite earlier steps.\n' +
+    '3. When patching, preserve the step type (don\'t change "email" to "sms"). If a type change is needed, delete + insert.\n' +
+    '4. Branch step config must include: condition (kind, withinHours), trueNext (0-based index in the FINAL list — assume your changes have been applied), falseNext (same).\n' +
+    '5. Email step config: { subject, body, trackOpens, replyBehavior?: "exit"|"continue" }. Body is plain text with \\n line breaks. End emails with "— Matt".\n' +
+    '6. SMS step config: { body }. Under 320 chars. Plain text.\n' +
+    '7. Wait step config: { amount: number, unit: "hours"|"days"|"weeks"|"businessDays" }.\n' +
+    '8. Action step config: { kind, payload? }.\n' +
+    '9. Booking links: NEVER invent calendly.com / hubspot.com / etc. Use ONLY the URLs in the BOOKING LINKS block below VERBATIM. If empty, write "I\'ll send a few times that work" instead.\n' +
+    '10. Voice: warm, direct, low-key. Avoid "synergy", "leverage", "circle back", "touch base", "just checking in", "moving forward", "deep dive". Sign emails "— Matt".\n' +
+    '11. NO INSTANT FOLLOW-UPS — if your changes route a branch arm directly to a send, ALSO insert a wait step (min 1 day for emails, 4 hr for SMS) between the branch and the send. The engine has a 60-min safety floor as backup but you should still emit explicit waits.\n\n' +
+    '## BOOKING LINKS (real, active, verbatim only)\n' +
+    getActiveBookingLinksBlock_() + '\n\n' +
+    '## OUTPUT — STRICT JSON, NO MARKDOWN, NO PREAMBLE\n' +
+    '{\n' +
+    '  "rationale": "1-3 sentences explaining what you changed and why",\n' +
+    '  "summary": "Short title for this revision (under 60 chars), e.g. \\"Rewrote breakup email to soften\\"",\n' +
+    '  "changes": [\n' +
+    '    { "action": "patch",  "stepIdx": 0, "label": "...", "config": { ... } },\n' +
+    '    { "action": "insert", "afterStepIdx": 4, "step": { "type": "wait", "label": "...", "config": { "amount": 3, "unit": "days" } } },\n' +
+    '    { "action": "delete", "stepIdx": 7 }\n' +
+    '  ]\n' +
+    '}\n' +
+    'If feedback cannot be satisfied (e.g. asks for something that requires manual judgment / external context you don\'t have), return changes:[] with rationale explaining why.';
+
+  const userMessage =
+    targetBlock +
+    '\nUSER FEEDBACK:\n' + feedback + '\n\n' +
+    goalBlock +
+    'CURRENT STEPS (one JSON object per line):\n' + stepsBlock + '\n\n' +
+    'Return your revision JSON.';
+
+  const res = UrlFetchApp.fetch(ANTHROPIC_API_URL_, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': ANTHROPIC_API_VERSION_,
+    },
+    payload: JSON.stringify({
+      model: model,
+      max_tokens: 4000,
+      system: withCompanyContext_(systemPrompt, 'aiBuildSequence'),
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Claude API HTTP ' + code + ': ' + res.getContentText().slice(0, 300));
+  const json = JSON.parse(res.getContentText());
+  const text = (json.content && json.content[0] && json.content[0].text) || '';
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  let parsed = { rationale: '', summary: '', changes: [] };
+  try { parsed = JSON.parse(cleaned); } catch (e) {
+    throw new Error('Claude returned malformed JSON. First 500 chars: ' + cleaned.slice(0, 500));
+  }
+  parsed.model = model;
+  return parsed;
 }
 
 

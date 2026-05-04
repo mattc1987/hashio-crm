@@ -249,7 +249,18 @@ export function SequenceEditor() {
           <SequenceFlowView
             steps={steps}
             selectedStepId={editing}
+            sequenceId={sequence.id}
+            goalContext={{
+              goal: sequence.description || '',
+              audience: '',
+              channels: [],
+            }}
             onStepClick={(id) => { setEditing(id); setViewMode('list') }}
+            onChangesApplied={() => {
+              // Local cache will already reflect updates; force a sheet refresh
+              // so the next render uses the canonical post-revision step list.
+              refresh()
+            }}
           />
         </Card>
       )}

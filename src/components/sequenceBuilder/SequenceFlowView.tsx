@@ -13,14 +13,16 @@
 // No external dep — just SVG. ~250 lines of view + ~200 of layout
 // math elsewhere = full custom node graph for this app's needs.
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Mail, MessageSquare, Clock, GitBranch, Zap,
-  AlertTriangle, AlertCircle, CheckCircle2, X, Info,
+  AlertTriangle, AlertCircle, CheckCircle2, X, Info, Sparkles,
 } from 'lucide-react'
 import type { SequenceStep } from '../../lib/types'
 import { analyzeSequence, type FlowEdge, type FlowIssue, type ParsedStep } from '../../lib/sequenceFlow'
 import { cn } from '../../lib/cn'
+import { Button } from '../ui'
+import { SequenceReviseDrawer } from './SequenceReviseDrawer'
 
 // Layout constants
 const NODE_W = 220
@@ -39,13 +41,26 @@ const TYPE_META: Record<string, { icon: React.ComponentType<{ size?: number; cla
 export function SequenceFlowView({
   steps,
   selectedStepId,
+  sequenceId,
+  goalContext,
   onStepClick,
+  onChangesApplied,
 }: {
   steps: SequenceStep[]
   selectedStepId?: string | null
+  sequenceId: string
+  goalContext?: { goal?: string; audience?: string; channels?: string[] }
   onStepClick?: (stepId: string) => void
+  onChangesApplied?: () => void
 }) {
   const flow = useMemo(() => analyzeSequence(steps), [steps])
+  const [reviseTargetIdx, setReviseTargetIdx] = useState<number | null>(null)
+  const [reviseOpen, setReviseOpen] = useState(false)
+
+  const openReviseFor = (idx: number | null) => {
+    setReviseTargetIdx(idx)
+    setReviseOpen(true)
+  }
 
   // Compute pixel coordinates from (col, row) grid
   const nodeXY = useMemo(() => {
@@ -90,6 +105,21 @@ export function SequenceFlowView({
 
   return (
     <div className="space-y-4">
+      {/* Top action bar */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="text-[12px] text-muted">
+          Click any node to edit it. Click <Sparkles size={11} className="inline -mt-0.5 mx-0.5 text-[var(--color-brand-600)]" /> to ask AI to revise.
+        </div>
+        <Button
+          variant="secondary"
+          icon={<Sparkles size={13} />}
+          onClick={() => openReviseFor(null)}
+          title="Ask AI for sequence-wide changes — describe what feels off and AI proposes a diff"
+        >
+          Ask AI to revise sequence
+        </Button>
+      </div>
+
       {/* Health summary banner */}
       <HealthBanner issues={flow.issues} healthy={flow.healthy} totalSteps={flow.steps.length} reachableCount={flow.reachable.size} />
 
@@ -133,12 +163,23 @@ export function SequenceFlowView({
                   reachable={isReachable}
                   selected={isSelected}
                   onClick={() => onStepClick?.(step.id)}
+                  onAskAI={() => openReviseFor(step.index)}
                 />
               </foreignObject>
             )
           })}
         </svg>
       </div>
+
+      <SequenceReviseDrawer
+        open={reviseOpen}
+        steps={steps}
+        targetStepIdx={reviseTargetIdx}
+        sequenceId={sequenceId}
+        goalContext={goalContext}
+        onClose={() => setReviseOpen(false)}
+        onApplied={() => onChangesApplied?.()}
+      />
 
       {/* Detailed issue list */}
       {flow.issues.length > 0 && (
@@ -157,13 +198,14 @@ export function SequenceFlowView({
 // ============================================================
 
 function NodeCard({
-  step, issues, reachable, selected, onClick,
+  step, issues, reachable, selected, onClick, onAskAI,
 }: {
   step: ParsedStep
   issues: FlowIssue[]
   reachable: boolean
   selected: boolean
   onClick: () => void
+  onAskAI: () => void
 }) {
   const meta = TYPE_META[step.type] || TYPE_META['action']
   const Icon = meta.icon
@@ -212,6 +254,13 @@ function NodeCard({
             className={cn('shrink-0', hasError ? 'text-[var(--color-danger)]' : 'text-[var(--color-warning)]')}
           />
         )}
+        <button
+          onClick={(e) => { e.stopPropagation(); onAskAI() }}
+          title="Ask AI to revise this step"
+          className="p-0.5 rounded text-[var(--color-brand-600)] hover:bg-[color:rgba(122,94,255,0.15)] shrink-0"
+        >
+          <Sparkles size={11} />
+        </button>
       </div>
       <div className="text-[12px] font-medium text-body line-clamp-1 leading-tight">
         {step.label}
