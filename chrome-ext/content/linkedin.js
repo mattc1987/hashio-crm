@@ -38,96 +38,191 @@
   // Profile scraping (/in/<slug>)
   // ============================================================
 
+  /**
+   * Read the current LinkedIn profile.
+   *
+   * STRATEGY: prefer signals LinkedIn keeps stable for SEO/social sharing
+   * over CSS class-based selectors (which they rotate every few months).
+   *
+   *   1. JSON-LD `<script type="application/ld+json">` — structured Person
+   *      schema with name, jobTitle, worksFor.name, address.addressLocality.
+   *      Most reliable, LinkedIn maintains this for search engines.
+   *   2. Open Graph meta tags — og:title is "Name - Title - Company | LinkedIn",
+   *      og:description has the bio. Stable for social card previews.
+   *   3. <title> tag — same pattern as og:title.
+   *   4. DOM h1 + class-based selectors — last resort, brittle.
+   *
+   * Each strategy fills in missing fields; later strategies don't overwrite
+   * what earlier ones found.
+   */
   function readProfile() {
-    // Name — h1 in the top card. LinkedIn's classes change but h1 is stable.
-    let name = ''
-    const nameEl = document.querySelector('main h1, h1.text-heading-xlarge, .top-card-layout__title')
-    if (nameEl) name = (nameEl.textContent || '').trim()
-
-    // Headline / current title — usually right below the name in the top card.
-    // Multiple candidate selectors because LinkedIn renames classes regularly.
-    let headline = ''
-    const headlineEl =
-      document.querySelector('main .text-body-medium.break-words') ||
-      document.querySelector('.top-card-layout__headline') ||
-      document.querySelector('div[class*="text-body-medium"][class*="break-words"]')
-    if (headlineEl) headline = (headlineEl.textContent || '').trim()
-
-    // Location — small text near the top, usually after headline. Matches the
-    // pattern "City, ST" / "Region, Country" or just a single location string.
-    let location = ''
-    const locEl =
-      document.querySelector('main .text-body-small.inline.t-black--light.break-words') ||
-      document.querySelector('.top-card-layout__first-subline + div') ||
-      document.querySelector('span.text-body-small[class*="break-words"]')
-    if (locEl) location = (locEl.textContent || '').trim()
-
-    // Current company — try the experience section first, fall back to parsing
-    // from the headline ("Title at Company" pattern).
-    let companyName = ''
-    const expBtn = document.querySelector('main section[id^="experience"] [aria-hidden="true"]')
-    // Better: grab the FIRST experience entry's company line
-    const firstExp = document.querySelector('main section[id^="experience"] li, main section[id^="experience"] .pvs-list__paged-list-item')
-    if (firstExp) {
-      // The company name appears as a span inside the experience entry — usually
-      // the second prominent span (first is the title).
-      const spans = firstExp.querySelectorAll('span[aria-hidden="true"], span.t-14, span.t-bold')
-      const candidates = []
-      spans.forEach((s) => {
-        const txt = (s.textContent || '').trim()
-        if (txt && txt.length > 1 && txt.length < 80) candidates.push(txt)
-      })
-      // Heuristic: company is usually candidates[1] (after the title) — but
-      // LinkedIn varies. Try to find one that doesn't contain "Present" or dates.
-      for (let i = 0; i < candidates.length; i++) {
-        const c = candidates[i]
-        if (/Present|\d{4}|·\s\d|yrs?|mos?/i.test(c)) continue
-        if (i === 0) continue // first is usually the title
-        companyName = c
-        break
-      }
-    }
-    if (!companyName) {
-      // Headline parser fallback
-      const m = headline.match(/\b(?:at|@)\s+(.+?)(?:\s*[|·\-]|$)/i)
-      if (m) companyName = m[1].trim()
-    }
-
-    // Profile URL — strip query/hash, normalize trailing slash
-    const profileUrl = location.href.split('?')[0].split('#')[0].replace(/\/$/, '')
     const slugMatch = window.location.pathname.match(/^\/in\/([^/]+)/)
     const slug = slugMatch ? slugMatch[1] : ''
+    const profileUrl = 'https://www.linkedin.com/in/' + slug
 
-    // Avatar (best-effort)
-    let avatarUrl = ''
-    const avatarEl = document.querySelector('main .pv-top-card__photo img, main .top-card-layout__entity-image, main img.profile-picture-link img')
-    if (avatarEl && avatarEl.tagName === 'IMG') avatarUrl = avatarEl.getAttribute('src') || ''
-
-    // Split name → first + last (LinkedIn names sometimes have suffixes/credentials)
-    const cleanName = name.replace(/\s*,\s*(MBA|PhD|CPA|MD|JD|Esq\.?|Ph\.?D\.?)$/i, '').trim()
-    const parts = cleanName.split(/\s+/).filter(Boolean)
-    const firstName = parts[0] || ''
-    const lastName = parts.slice(1).join(' ')
-
-    return {
+    const out = {
       slug,
-      profileUrl: 'https://www.linkedin.com/in/' + slug,
-      name: cleanName,
-      firstName,
-      lastName,
-      headline,
-      title: parseTitleFromHeadline(headline),
-      companyName,
-      location,
-      avatarUrl,
+      profileUrl,
+      name: '',
+      firstName: '',
+      lastName: '',
+      headline: '',
+      title: '',
+      companyName: '',
+      location: '',
+      avatarUrl: '',
+      _sources: [],
     }
+
+    // ---- 1. JSON-LD (most reliable) ----
+    try {
+      const scripts = document.querySelectorAll('script[type="application/ld+json"]')
+      for (const s of scripts) {
+        let json
+        try { json = JSON.parse(s.textContent || '{}') } catch { continue }
+        // LinkedIn nests it differently per page — could be a Person, or an
+        // ItemList wrapping a Person, or a graph @graph: [...]
+        const persons = collectPersons(json)
+        for (const p of persons) {
+          if (!out.name && p.name) { out.name = String(p.name).trim(); out._sources.push('jsonld:name') }
+          if (!out.title && p.jobTitle) { out.title = String(p.jobTitle).trim(); out._sources.push('jsonld:jobTitle') }
+          if (!out.companyName && p.worksFor) {
+            const wf = Array.isArray(p.worksFor) ? p.worksFor[0] : p.worksFor
+            const wfName = wf && (wf.name || wf['@name'])
+            if (wfName) { out.companyName = String(wfName).trim(); out._sources.push('jsonld:worksFor') }
+          }
+          if (!out.location && p.address) {
+            const a = Array.isArray(p.address) ? p.address[0] : p.address
+            const city = a && (a.addressLocality || a.locality)
+            const region = a && (a.addressRegion || a.region)
+            const country = a && (a.addressCountry || a.country)
+            const loc = [city, region, country].filter(Boolean).join(', ')
+            if (loc) { out.location = loc; out._sources.push('jsonld:address') }
+          }
+          if (!out.avatarUrl && p.image) {
+            out.avatarUrl = typeof p.image === 'string' ? p.image : (p.image.url || p.image.contentUrl || '')
+            if (out.avatarUrl) out._sources.push('jsonld:image')
+          }
+        }
+        if (out.name && out.title) break
+      }
+    } catch { /* fall through */ }
+
+    // ---- 2. Open Graph meta tags ----
+    // og:title format: "Person Name - Title - Company | LinkedIn"
+    if (!out.name || !out.title || !out.companyName) {
+      const ogTitle = (document.querySelector('meta[property="og:title"]') || {}).content || ''
+      if (ogTitle) {
+        const stripped = ogTitle.replace(/\s*[|·]\s*LinkedIn\s*$/i, '').trim()
+        // Try splitting on " - " / " | " / " · "
+        const parts = stripped.split(/\s+[-|·]\s+/).map((p) => p.trim()).filter(Boolean)
+        if (parts.length >= 1 && !out.name) {
+          out.name = parts[0]
+          out._sources.push('og:title:name')
+        }
+        if (parts.length >= 2 && !out.title) {
+          out.title = parts[1]
+          out._sources.push('og:title:title')
+        }
+        if (parts.length >= 3 && !out.companyName) {
+          out.companyName = parts.slice(2).join(' - ')
+          out._sources.push('og:title:company')
+        }
+      }
+    }
+
+    // ---- 3. <title> tag (same pattern as og:title) ----
+    if (!out.name || !out.title) {
+      const docTitle = (document.title || '').trim()
+      if (docTitle) {
+        const stripped = docTitle.replace(/\s*[|·]\s*LinkedIn\s*$/i, '').trim()
+        const parts = stripped.split(/\s+[-|·]\s+/).map((p) => p.trim()).filter(Boolean)
+        if (parts.length >= 1 && !out.name) { out.name = parts[0]; out._sources.push('doctitle:name') }
+        if (parts.length >= 2 && !out.title) { out.title = parts[1]; out._sources.push('doctitle:title') }
+        if (parts.length >= 3 && !out.companyName) { out.companyName = parts.slice(2).join(' - '); out._sources.push('doctitle:company') }
+      }
+    }
+
+    // ---- 4. DOM enrichment (last resort, brittle) ----
+    if (!out.name) {
+      const nameEl = document.querySelector('main h1, h1.text-heading-xlarge, .top-card-layout__title, h1')
+      if (nameEl) { out.name = (nameEl.textContent || '').trim(); out._sources.push('dom:h1') }
+    }
+    if (!out.title || !out.companyName) {
+      // The headline element — try several selector variations
+      const headlineEl =
+        document.querySelector('main .text-body-medium.break-words') ||
+        document.querySelector('.top-card-layout__headline') ||
+        document.querySelector('div[class*="text-body-medium"][class*="break-words"]') ||
+        document.querySelector('main [data-test-headline]')
+      if (headlineEl) {
+        const headline = (headlineEl.textContent || '').trim()
+        if (headline) {
+          out.headline = headline
+          // "Title at Company" pattern
+          const m = headline.match(/^(.+?)\s+(?:at|@)\s+(.+?)(?:\s*[|·\-]|$)/i)
+          if (m) {
+            if (!out.title) { out.title = m[1].trim(); out._sources.push('dom:headline:title') }
+            if (!out.companyName) { out.companyName = m[2].trim(); out._sources.push('dom:headline:company') }
+          } else if (!out.title) {
+            out.title = headline
+            out._sources.push('dom:headline:full')
+          }
+        }
+      }
+    }
+    if (!out.location) {
+      const locEl =
+        document.querySelector('main .text-body-small.inline.t-black--light.break-words') ||
+        document.querySelector('.top-card-layout__first-subline + div') ||
+        document.querySelector('span.text-body-small[class*="break-words"]')
+      if (locEl) { out.location = (locEl.textContent || '').trim(); out._sources.push('dom:location') }
+    }
+    if (!out.avatarUrl) {
+      const avatarEl = document.querySelector('main img.profile-picture-link, main .pv-top-card__photo img, main img[width="200"][height="200"]')
+      if (avatarEl && avatarEl.tagName === 'IMG') {
+        out.avatarUrl = avatarEl.getAttribute('src') || ''
+      }
+    }
+
+    // ---- Clean & split name ----
+    out.name = out.name.replace(/\s*,\s*(MBA|PhD|CPA|MD|JD|Esq\.?|Ph\.?D\.?)$/i, '').trim()
+    const parts = out.name.split(/\s+/).filter(Boolean)
+    out.firstName = parts[0] || ''
+    out.lastName = parts.slice(1).join(' ')
+
+    // Strip "at Company" suffix from title if it slipped through
+    if (out.title) {
+      out.title = out.title.replace(/\s+(?:at|@)\s+.+$/i, '').trim()
+    }
+
+    return out
   }
 
-  function parseTitleFromHeadline(headline) {
-    if (!headline) return ''
-    // Strip "at Company" suffix to leave just the title
-    const noAt = headline.replace(/\s+(?:at|@)\s+.+$/i, '')
-    return noAt.trim()
+  /**
+   * Recursively pull every Person-like object out of a JSON-LD blob.
+   * Handles @graph arrays, ItemList → itemListElement → Person, and bare
+   * Person objects.
+   */
+  function collectPersons(json) {
+    const out = []
+    function visit(node) {
+      if (!node || typeof node !== 'object') return
+      const type = node['@type']
+      const types = Array.isArray(type) ? type : [type]
+      if (types.indexOf('Person') >= 0) out.push(node)
+      // Walk common containers
+      if (Array.isArray(node['@graph'])) node['@graph'].forEach(visit)
+      if (Array.isArray(node.itemListElement)) {
+        node.itemListElement.forEach((it) => {
+          if (it && it.item) visit(it.item)
+          else visit(it)
+        })
+      }
+      if (Array.isArray(node)) node.forEach(visit)
+    }
+    visit(json)
+    return out
   }
 
   // ============================================================
@@ -137,95 +232,127 @@
   //   - Public LinkedIn /search/results/people — anonymous DOM, list of cards
   //   - Sales Nav /sales/search/people — different DOM, similar idea
 
+  /**
+   * Read search results.
+   *
+   * STRATEGY: anchor-driven, not class-driven. Every search result has at
+   * least one `<a href="/in/<slug>">` (or `/sales/lead/<id>`) — that anchor
+   * is stable. Find every such anchor, walk up to a reasonable container
+   * (any ancestor that's also a list item / search-result / row), then
+   * extract text from sibling elements.
+   *
+   * This dramatically outlasts LinkedIn's class rotations.
+   */
   function readSearchResults() {
     const isSalesNav = /^\/sales\/search\/people/.test(window.location.pathname)
+    const profileSelector = isSalesNav
+      ? 'a[href*="/sales/lead/"]'
+      : 'a[href*="/in/"]'
+
+    const anchors = Array.from(document.querySelectorAll(profileSelector))
     const results = []
-
-    if (isSalesNav) {
-      // Sales Nav uses a different DOM. Each result is a tr or li with a
-      // profile link. This selector is fuzzy — Sales Nav rebuilds the DOM
-      // when filters change, so we use the most stable structural traits.
-      const rows = document.querySelectorAll('li.artdeco-list__item, .search-results__result-item, [data-x-search-result="LEAD"]')
-      rows.forEach((row) => {
-        const link = row.querySelector('a[href*="/sales/lead/"]')
-        if (!link) return
-        const href = link.getAttribute('href') || ''
-        const name = (link.textContent || '').trim()
-        if (!name || !href) return
-        const titleEl = row.querySelector('[data-anonymize="title"], .result-lockup__highlight-keyword')
-        const companyEl = row.querySelector('[data-anonymize="company-name"], a[href*="/sales/company/"]')
-        const locationEl = row.querySelector('[data-anonymize="location"]')
-        results.push({
-          source: 'sales-nav',
-          profileUrl: href.startsWith('http') ? href : ('https://www.linkedin.com' + href),
-          name,
-          firstName: name.split(/\s+/)[0] || '',
-          lastName: name.split(/\s+/).slice(1).join(' ') || '',
-          title: titleEl ? (titleEl.textContent || '').trim() : '',
-          companyName: companyEl ? (companyEl.textContent || '').trim() : '',
-          location: locationEl ? (locationEl.textContent || '').trim() : '',
-        })
-      })
-    } else {
-      // Public LinkedIn search results
-      const rows = document.querySelectorAll('.search-results-container li, .reusable-search__result-container, .entity-result__item')
-      rows.forEach((row) => {
-        const link = row.querySelector('a[href*="/in/"]')
-        if (!link) return
-        const href = (link.getAttribute('href') || '').split('?')[0]
-        const slugMatch = href.match(/\/in\/([^/]+)/)
-        const slug = slugMatch ? slugMatch[1] : ''
-        if (!slug) return
-
-        // Name — anchor text or aria-label, sometimes includes a connection-degree suffix
-        let name = ''
-        const titleSpan = row.querySelector('.entity-result__title-text a span[aria-hidden="true"], .actor-name, span.actor-name-text')
-        if (titleSpan) name = (titleSpan.textContent || '').trim()
-        if (!name) name = (link.textContent || '').trim()
-        // Strip connection-degree suffix like "• 2nd"
-        name = name.replace(/\s*[•·]\s*\d(?:st|nd|rd)\b.*$/i, '').trim()
-        if (!name) return
-
-        // Title and company appear on subsequent lines in the result card
-        let title = ''
-        let companyName = ''
-        let location = ''
-        const subtitle = row.querySelector('.entity-result__primary-subtitle, div.subline-level-1')
-        if (subtitle) {
-          const sub = (subtitle.textContent || '').trim()
-          // Common pattern: "Director of Operations at Acme Corp"
-          const atMatch = sub.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i)
-          if (atMatch) {
-            title = atMatch[1].trim()
-            companyName = atMatch[2].trim()
-          } else {
-            title = sub
-          }
-        }
-        const locEl = row.querySelector('.entity-result__secondary-subtitle, div.subline-level-2')
-        if (locEl) location = (locEl.textContent || '').trim()
-
-        const parts = name.split(/\s+/).filter(Boolean)
-        results.push({
-          source: 'public-search',
-          slug,
-          profileUrl: 'https://www.linkedin.com/in/' + slug,
-          name,
-          firstName: parts[0] || '',
-          lastName: parts.slice(1).join(' '),
-          title,
-          companyName,
-          location,
-        })
-      })
-    }
-    // Dedupe by profileUrl
     const seen = new Set()
-    return results.filter((r) => {
-      if (seen.has(r.profileUrl)) return false
-      seen.add(r.profileUrl)
-      return true
-    })
+
+    for (const link of anchors) {
+      const href = (link.getAttribute('href') || '').split('?')[0]
+      if (!href) continue
+      // Skip non-profile /in/ paths (e.g., /in/<self> in nav menus)
+      if (!isSalesNav && !/^\/in\//.test(href.replace(/^https?:\/\/[^/]+/, ''))) continue
+      const slugMatch = href.match(isSalesNav ? /\/sales\/lead\/([^/?#]+)/ : /\/in\/([^/?#]+)/)
+      const slug = slugMatch ? slugMatch[1] : ''
+      if (!slug) continue
+
+      const profileUrl = isSalesNav
+        ? (href.startsWith('http') ? href : 'https://www.linkedin.com' + href)
+        : 'https://www.linkedin.com/in/' + slug
+      if (seen.has(profileUrl)) continue
+
+      // Walk up to a result-row container. We look for any ancestor that
+      // contains both the anchor AND additional descendant text — i.e. a
+      // multi-line result card, not just the anchor itself.
+      let container = link.parentElement
+      let depth = 0
+      while (container && depth < 8) {
+        const txt = (container.textContent || '').trim()
+        // A real result row has more text than just the anchor (title/company
+        // siblings) — when textContent is significantly bigger than the anchor's
+        // own text, we've found the row.
+        const anchorText = (link.textContent || '').trim()
+        if (txt.length > anchorText.length + 20 && txt.length < 1000) break
+        container = container.parentElement
+        depth++
+      }
+      if (!container) continue
+
+      // Skip global-nav matches (header/sidebar links)
+      if (container.closest('header, nav, aside, [role="banner"], [role="navigation"]')) continue
+
+      // Name: anchor text, or first heading inside the container
+      let name = ''
+      const nameSpan = container.querySelector('span[aria-hidden="true"]')
+      if (nameSpan) name = (nameSpan.textContent || '').trim()
+      if (!name) name = (link.textContent || '').trim()
+      // Strip connection-degree suffix "• 2nd" / "· 3rd"
+      name = name.replace(/\s*[•·]\s*\d+(?:st|nd|rd|th)?\b.*$/i, '').trim()
+      // Strip leading "View <name>'s profile" prefix Gmail-Voice-style
+      name = name.replace(/^View\s+/i, '').replace(/'s profile.*$/i, '').trim()
+      if (!name || name.length > 100) continue
+
+      // Title + company: pull all visible text inside the container, drop
+      // the name + URL noise, and look for "Title at Company" patterns OR
+      // pick the first text line that contains a known title keyword.
+      const TITLE_RX = /\b(CEO|CTO|CFO|COO|CMO|CPO|CIO|VP|EVP|SVP|President|Founder|Co-?founder|Owner|Partner|Principal|Director|Manager|Lead|Head|Chief|Senior|Sr\.|Junior|Engineer|Producer|Operator|Operations|Cultivator|Cultivation|Compliance|Sales|Marketing|Architect|Designer|Developer|Strategist|Advisor|Buyer|Procurement|Supply|Grower|Master\sGrower|Analyst|Specialist|Consultant|Coordinator|AE|BDR|SDR|Account)\b/i
+
+      const lines = (container.textContent || '')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l && l.length < 200)
+
+      let title = ''
+      let companyName = ''
+      let location = ''
+
+      for (const line of lines) {
+        if (line === name) continue
+        if (line.toLowerCase().includes(name.toLowerCase()) && line.length < name.length + 20) continue
+        // "Title at Company" — strongest signal
+        const atMatch = line.match(/^(.+?)\s+(?:at|@)\s+(.+?)$/i)
+        if (atMatch && TITLE_RX.test(atMatch[1])) {
+          title = atMatch[1].trim()
+          companyName = atMatch[2].trim()
+          break
+        }
+        // Or a line that looks like a title
+        if (!title && TITLE_RX.test(line) && line.length < 120) {
+          title = line
+        }
+      }
+
+      // Location heuristic: line that looks like "City, ST" or "City, Country"
+      for (const line of lines) {
+        if (line === name || line === title || line === companyName) continue
+        if (/^[A-Z][\w\s.\-]+,\s+[A-Z]/.test(line) && line.length < 80) {
+          location = line
+          break
+        }
+      }
+
+      const parts = name.split(/\s+/).filter(Boolean)
+      results.push({
+        source: isSalesNav ? 'sales-nav' : 'public-search',
+        slug,
+        profileUrl,
+        name,
+        firstName: parts[0] || '',
+        lastName: parts.slice(1).join(' '),
+        title,
+        companyName,
+        location,
+      })
+      seen.add(profileUrl)
+    }
+
+    return results
   }
 
   // ============================================================
@@ -335,6 +462,26 @@
   // ============================================================
 
   function renderProfileCard(p, existing) {
+    // Empty-data fallback — if we couldn't extract anything, tell the user
+    // explicitly + provide a "Show debug info" link so they can see what
+    // went wrong (which signals tried, which fired) instead of a silent void.
+    const haveAnyData = !!(p.name || p.title || p.companyName)
+    const debugDetails = `
+      <details class="debug">
+        <summary>What I tried to read</summary>
+        <div class="debug-inner">
+          <div><strong>Profile URL:</strong> ${escapeHtml(p.profileUrl || '(none)')}</div>
+          <div><strong>Slug:</strong> ${escapeHtml(p.slug || '(none)')}</div>
+          <div><strong>Name:</strong> ${escapeHtml(p.name || '(empty)')}</div>
+          <div><strong>Title:</strong> ${escapeHtml(p.title || '(empty)')}</div>
+          <div><strong>Company:</strong> ${escapeHtml(p.companyName || '(empty)')}</div>
+          <div><strong>Location:</strong> ${escapeHtml(p.location || '(empty)')}</div>
+          <div><strong>Sources fired:</strong> ${escapeHtml((p._sources || []).join(', ') || '(none — page may still be loading)')}</div>
+          <div class="muted small" style="margin-top:6px;">If fields are empty, the page may still be loading. Scroll once to nudge LinkedIn to render, or wait a few seconds and click "Refresh".</div>
+        </div>
+      </details>
+    `
+
     if (existing) {
       const fullName = `${existing.firstName} ${existing.lastName}`.trim()
       return `
@@ -346,8 +493,36 @@
             <a href="https://mattc1987.github.io/hashio-crm/#/contacts/${existing.id}" target="_blank" class="link-btn">Open in app ↗</a>
           </div>
         </div>
+        ${debugDetails}
       `
     }
+
+    if (!haveAnyData) {
+      return `
+        <div class="contact-card unknown">
+          <div class="name">Couldn't read this profile</div>
+          <div class="muted small" style="margin-top: 6px;">
+            LinkedIn may still be loading. Try scrolling, waiting a few seconds, or clicking Refresh below.
+          </div>
+        </div>
+        <div>
+          <div class="action-grid one-col">
+            <button class="action-btn" data-action="refresh">
+              <div class="icon">↻</div>
+              <div class="label">Refresh</div>
+            </button>
+            <button class="action-btn" data-action="add-from-profile">
+              <div class="icon">✏️</div>
+              <div class="label">Add manually</div>
+            </button>
+          </div>
+        </div>
+        ${debugDetails}
+        <div id="form-slot"></div>
+        <div id="toast-slot"></div>
+      `
+    }
+
     return `
       <div class="contact-card unknown">
         <div class="name">${escapeHtml(p.name || 'Unknown profile')}</div>
@@ -364,6 +539,7 @@
           </button>
         </div>
       </div>
+      ${debugDetails}
       <div id="form-slot"></div>
       <div id="toast-slot"></div>
     `
@@ -376,6 +552,7 @@
       btn.addEventListener('click', () => {
         const action = btn.getAttribute('data-action')
         if (action === 'add-from-profile') showAddFromProfileForm(profile, formSlot, toastSlot)
+        else if (action === 'refresh') { lastKey = ''; render() }
       })
     })
     void existing // currently unused — placeholder for future "edit existing" actions
@@ -668,8 +845,10 @@
     }
   }, 600)
 
-  // Initial render
-  setTimeout(render, 1200)
+  // Initial render — LinkedIn lazy-loads heavily, so retry several times
+  // over the first ~10 seconds. Each render is cheap (skipped if state
+  // unchanged via lastKey), so the retries are essentially free.
+  ;[800, 2000, 4000, 7000, 12000].forEach((ms) => setTimeout(render, ms))
 
   // Watch DOM changes — search results / profile sections load asynchronously
   const observer = new MutationObserver(() => {
@@ -912,6 +1091,25 @@
 
       .muted { color: var(--muted); }
       .small { font-size: 11px; }
+
+      details.debug {
+        margin-top: 4px;
+        font-size: 11px;
+        color: var(--muted);
+        background: var(--surface-2);
+        border-radius: 6px;
+        padding: 6px 10px;
+      }
+      details.debug summary {
+        cursor: pointer;
+        user-select: none;
+        font-weight: 500;
+        color: var(--faint);
+      }
+      details.debug summary:hover { color: var(--body); }
+      .debug-inner { padding-top: 8px; line-height: 1.6; }
+      .debug-inner div { margin: 2px 0; }
+      .debug-inner strong { color: var(--body); }
 
       @media (prefers-color-scheme: dark) {
         #root {
