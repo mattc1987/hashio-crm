@@ -10,7 +10,8 @@ import { api } from '../lib/api'
 import { ContactFilterBar } from '../components/ContactFilterBar'
 import { applyContactFilter, EMPTY_FILTER, type ContactFilterState } from '../lib/contactFilter'
 import { enrichContactsBulk } from '../lib/bdrAi'
-import { Sparkles, ShieldCheck } from 'lucide-react'
+import { Sparkles, ShieldCheck, UserPlus2 } from 'lucide-react'
+import { backfillNamesBulk } from '../lib/nameFromEmail'
 import { hasWriteBackend, bulkUpdate, bulkCreate } from '../lib/api'
 import { AIBdrDrawer } from '../components/AIBdrDrawer'
 import { telUrl, smsUrl, formatPhoneDisplay } from '../lib/phone'
@@ -25,6 +26,7 @@ export function Contacts() {
   const [aiContact, setAiContact] = useState<Contact | null>(null) // contact for AI BDR drawer
   const [scanRunning, setScanRunning] = useState(false)
   const [scanProgress, setScanProgress] = useState('')
+  const [backfillStatus, setBackfillStatus] = useState<{ phase: 'idle' | 'running' | 'done'; message: string }>({ phase: 'idle', message: '' })
   // Anchor index for shift-click range selection. null = no anchor yet.
   const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
 
@@ -242,6 +244,56 @@ export function Contacts() {
     }
   }
 
+  /**
+   * Backfill missing first/last names from email addresses. Pulls "John Smith"
+   * out of patterns like john.smith@acme.com — completely free, regex-based.
+   * Operates on the SELECTION if any, else on every contact missing a name.
+   * Only fills empty fields; never overwrites existing names.
+   */
+  const backfillNamesFromEmails = async () => {
+    setBackfillStatus({ phase: 'running', message: 'analyzing emails…' })
+    try {
+      const targets = (selectedIds.size > 0
+        ? contacts.filter((c) => selectedIds.has(c.id))
+        : contacts.filter((c) => !c.firstName || !c.lastName))
+        .filter((c) => c.email)
+      if (targets.length === 0) {
+        setBackfillStatus({ phase: 'done', message: 'No contacts to backfill — names already set or no email on file.' })
+        setTimeout(() => setBackfillStatus({ phase: 'idle', message: '' }), 4000)
+        return
+      }
+      const updates = backfillNamesBulk(targets, 60)
+      if (updates.length === 0) {
+        setBackfillStatus({ phase: 'done', message: `Checked ${targets.length} — no email pattern was confident enough to autofill.` })
+        setTimeout(() => setBackfillStatus({ phase: 'idle', message: '' }), 5000)
+        return
+      }
+      setBackfillStatus({ phase: 'running', message: `writing ${updates.length} update${updates.length === 1 ? '' : 's'}…` })
+      const now = new Date().toISOString()
+      const writeRows = updates.map((u) => ({
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        updatedAt: now,
+      }))
+      // Bulk update in chunks of 50
+      let written = 0
+      for (let i = 0; i < writeRows.length; i += 50) {
+        const chunk = writeRows.slice(i, i + 50)
+        const res = await bulkUpdate('contacts', chunk)
+        if (res.ok) written += res.updated || chunk.length
+      }
+      setBackfillStatus({
+        phase: 'done',
+        message: `✅ Backfilled ${written} name${written === 1 ? '' : 's'} from ${targets.length} email${targets.length === 1 ? '' : 's'}.`,
+      })
+      setTimeout(() => setBackfillStatus({ phase: 'idle', message: '' }), 5000)
+    } catch (err) {
+      setBackfillStatus({ phase: 'done', message: 'Backfill failed: ' + (err as Error).message })
+      setTimeout(() => setBackfillStatus({ phase: 'idle', message: '' }), 6000)
+    }
+  }
+
   const aiEnrichSelected = async () => {
     const ids = Array.from(selectedIds)
     if (ids.length === 0) return
@@ -326,6 +378,24 @@ export function Contacts() {
           <div className="flex items-center gap-2">
             {hasWriteBackend() && contacts.length > 0 && (
               <Button
+                icon={<UserPlus2 size={13} />}
+                onClick={backfillNamesFromEmails}
+                disabled={backfillStatus.phase === 'running'}
+                title={
+                  selectedIds.size > 0
+                    ? `Backfill names from emails on the ${selectedIds.size} selected contact(s)`
+                    : 'Backfill missing first/last names from email addresses (john.smith@acme.com → John Smith). Free, no AI cost.'
+                }
+              >
+                {backfillStatus.phase === 'running'
+                  ? `Backfilling… ${backfillStatus.message}`
+                  : selectedIds.size > 0
+                    ? `Backfill names (${selectedIds.size})`
+                    : 'Backfill names'}
+              </Button>
+            )}
+            {hasWriteBackend() && contacts.length > 0 && (
+              <Button
                 icon={<ShieldCheck size={13} />}
                 onClick={runQualityScan}
                 disabled={scanRunning}
@@ -348,6 +418,12 @@ export function Contacts() {
           </div>
         }
       />
+
+      {backfillStatus.phase === 'done' && backfillStatus.message && (
+        <div className="p-3 rounded-[var(--radius-md)] bg-[color:rgba(48,179,107,0.08)] text-[12px] text-[var(--color-success)]">
+          {backfillStatus.message}
+        </div>
+      )}
 
       <Card padded={false}>
         <div className="p-3 border-soft-b">

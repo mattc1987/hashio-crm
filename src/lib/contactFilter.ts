@@ -33,9 +33,15 @@ export interface ContactFilterState {
    *  contained in their title. Examples: ["VP", "Director", "Head of"]. */
   titlesContain: string[]
   companyIds: string[]
+  /** Filter contacts by their company's vertical. OR semantics — a contact
+   *  matches if their company.vertical is in this list. Empty array = no
+   *  filter. Use to build "all contacts at cultivators + vertical operators". */
+  companyVerticals: string[]
   hasEmail: Tristate
   hasPhone: Tristate
   hasLinkedin: Tristate
+  /** True/false/null tristate. True = first AND last name populated. */
+  hasName: Tristate
   hasOpenDeal: Tristate
   isCustomer: Tristate    // active MRR deal
   activity: ActivityWindow
@@ -49,9 +55,11 @@ export const EMPTY_FILTER: ContactFilterState = {
   roles: [],
   titlesContain: [],
   companyIds: [],
+  companyVerticals: [],
   hasEmail: null,
   hasPhone: null,
   hasLinkedin: null,
+  hasName: null,
   hasOpenDeal: null,
   isCustomer: null,
   activity: 'any',
@@ -152,10 +160,21 @@ export function applyContactFilter(
       if (!companySet.has(c.companyId || '')) return false
     }
 
-    // Has email / phone / LinkedIn
+    // Company vertical (OR) — join through companyId
+    if (state.companyVerticals && state.companyVerticals.length > 0) {
+      const co = c.companyId ? ctx.companies.find((x) => x.id === c.companyId) : null
+      const v = (co?.vertical || 'unknown') as string
+      if (!state.companyVerticals.includes(v)) return false
+    }
+
+    // Has email / phone / LinkedIn / name
     if (state.hasEmail !== null && !!c.email !== state.hasEmail) return false
     if (state.hasPhone !== null && !!c.phone !== state.hasPhone) return false
     if (state.hasLinkedin !== null && !!c.linkedinUrl !== state.hasLinkedin) return false
+    if (state.hasName !== null) {
+      const hasFullName = !!(c.firstName || '').trim() && !!(c.lastName || '').trim()
+      if (hasFullName !== state.hasName) return false
+    }
 
     // Has open deal
     const dealsForContact = dealsByContact.get(c.id) || []
@@ -242,6 +261,19 @@ export function describeActiveChips(state: ContactFilterState): ActiveChip[] {
       onRemove: (s) => ({ ...s, companyIds: s.companyIds.filter((x) => x !== c) }),
     })
   }
+  for (const v of state.companyVerticals || []) {
+    chips.push({
+      key: `cvertical:${v}`,
+      label: `Co. vertical: ${v.charAt(0).toUpperCase()}${v.slice(1)}`,
+      onRemove: (s) => ({ ...s, companyVerticals: s.companyVerticals.filter((x) => x !== v) }),
+    })
+  }
+  if (state.hasName !== null) {
+    chips.push({
+      key: 'hasName', label: state.hasName ? 'Has full name' : 'Missing name',
+      onRemove: (s) => ({ ...s, hasName: null }),
+    })
+  }
   if (state.hasEmail !== null) {
     chips.push({
       key: 'hasEmail', label: state.hasEmail ? 'Has email' : 'No email',
@@ -301,9 +333,11 @@ export function isFilterEmpty(s: ContactFilterState): boolean {
     s.roles.length === 0 &&
     (!s.titlesContain || s.titlesContain.length === 0) &&
     s.companyIds.length === 0 &&
+    (!s.companyVerticals || s.companyVerticals.length === 0) &&
     s.hasEmail === null &&
     s.hasPhone === null &&
     s.hasLinkedin === null &&
+    s.hasName === null &&
     s.hasOpenDeal === null &&
     s.isCustomer === null &&
     s.activity === 'any'

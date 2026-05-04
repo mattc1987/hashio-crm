@@ -20,7 +20,7 @@ import {
   ACTIVITY_LABELS,
   parseTags,
 } from '../lib/contactFilter'
-import { CONTACT_ROLES, type Contact, type Company } from '../lib/types'
+import { CONTACT_ROLES, COMPANY_VERTICALS, type Contact, type Company } from '../lib/types'
 import { cn } from '../lib/cn'
 
 interface Props {
@@ -269,7 +269,13 @@ function AddFilterPopover({
           <SectionButton label="State / region" hint={`${states.length} options`} onClick={() => setSection('states')} />
           <SectionButton label="Status" hint={`${statuses.length} options`} onClick={() => setSection('statuses')} />
           <SectionButton label="Company" hint={`${companies.length} options`} onClick={() => setSection('companies')} />
+          <SectionButton label="Company vertical" hint="Cultivator / Processor / Vertical / Retail" onClick={() => setSection('cverticals')} />
           <div className="border-soft-t my-1" />
+          <ToggleRow
+            label="Has full name"
+            value={state.hasName}
+            onChange={(v) => setState({ ...state, hasName: v })}
+          />
           <ToggleRow
             label="Has email"
             value={state.hasEmail}
@@ -358,6 +364,37 @@ function AddFilterPopover({
                 selected={state.titlesContain}
                 onChange={(v) => setState({ ...state, titlesContain: v })}
               />
+            )}
+            {section === 'cverticals' && (
+              <div className="px-1">
+                <div className="text-[11px] text-muted px-2 pt-1 pb-2">
+                  Match contacts whose company is in any of these verticals.
+                </div>
+                {COMPANY_VERTICALS.map((v) => {
+                  const isSelected = (state.companyVerticals || []).includes(v.value)
+                  return (
+                    <button
+                      key={v.value}
+                      onClick={() => {
+                        const next = isSelected
+                          ? state.companyVerticals.filter((x) => x !== v.value)
+                          : [...state.companyVerticals, v.value]
+                        setState({ ...state, companyVerticals: next })
+                      }}
+                      className={cn(
+                        'w-full flex items-start justify-between gap-3 px-3 py-2 text-left rounded-[var(--radius-sm)] hover:surface-2',
+                        isSelected && 'bg-[color:rgba(122,94,255,0.08)] text-[var(--color-brand-700)] dark:text-[var(--color-brand-300)]',
+                      )}
+                    >
+                      <div>
+                        <div className="text-[12px] font-medium">{v.label}</div>
+                        <div className="text-[10px] text-muted">{v.description}</div>
+                      </div>
+                      {isSelected && <Badge tone="brand">✓</Badge>}
+                    </button>
+                  )
+                })}
+              </div>
             )}
             {section === 'activity' && (
               <div>
