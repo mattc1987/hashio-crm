@@ -140,27 +140,34 @@ export function Companies() {
     }
 
     let aiHits: Array<{ id: string; vertical: string; confidence: number; source: string; reasoning?: string }> = []
+    let aiErrors = 0
+    let lastAiError = ''
     if (stillUnknown.length > 0) {
       setDetectStatus({ phase: 'detecting', message: `Pass 2 — AI lookup for ${stillUnknown.length} ambiguous compan${stillUnknown.length === 1 ? 'y' : 'ies'}…` })
-      // Batch in chunks of 25
-      for (let i = 0; i < stillUnknown.length; i += 25) {
-        const chunk = stillUnknown.slice(i, i + 25)
+      // Batch in chunks of 15 (smaller than 25 — keeps payload well under
+      // request limits and reduces blast radius if one batch fails).
+      for (let i = 0; i < stillUnknown.length; i += 15) {
+        const chunk = stillUnknown.slice(i, i + 15)
         try {
           const res = await invokeAction('aiInferVerticalsBulk', {
             companies: chunk.map((c) => ({ id: c.id, name: c.name, state: stateForCompany(c), website: c.website })),
           })
-          if (res.ok) {
-            const rows = (res as { data?: { results?: Array<{ id: string; vertical: string; confidence: number; reasoning?: string }> } }).data?.results || []
-            for (const r of rows) {
-              if (!r.id || !r.vertical) continue
-              if (r.vertical === 'unknown') continue
-              const c = Number(r.confidence) || 0
-              if (c < 60) continue // threshold to commit
-              aiHits.push({ id: r.id, vertical: r.vertical, confidence: c, source: 'ai', reasoning: r.reasoning })
-            }
+          if (!res.ok) {
+            aiErrors++
+            lastAiError = res.error || 'Unknown error'
+            continue
+          }
+          const rows = (res as { data?: { results?: Array<{ id: string; vertical: string; confidence: number; reasoning?: string }> } }).data?.results || []
+          for (const r of rows) {
+            if (!r.id || !r.vertical) continue
+            if (r.vertical === 'unknown') continue
+            const c = Number(r.confidence) || 0
+            if (c < 60) continue // threshold to commit
+            aiHits.push({ id: r.id, vertical: r.vertical, confidence: c, source: 'ai', reasoning: r.reasoning })
           }
         } catch (err) {
-          // Soft-fail — keep going with whatever we got
+          aiErrors++
+          lastAiError = (err as Error).message
           console.error('Vertical AI batch failed:', err)
         }
       }
@@ -168,7 +175,13 @@ export function Companies() {
 
     const allHits = [...regexHits, ...aiHits]
     if (allHits.length === 0) {
-      setDetectStatus({ phase: 'done', message: 'Detection ran — nothing confident enough to apply automatically.' })
+      const aiNote = aiErrors > 0
+        ? ` AI failed on ${aiErrors} batch${aiErrors === 1 ? '' : 'es'} — ${lastAiError}. (Likely cause: redeploy Apps Script with the latest Code.gs to pick up the new aiInferVerticalsBulk action.)`
+        : ''
+      setDetectStatus({
+        phase: 'done',
+        message: `Detection ran — nothing confident enough to apply automatically.${aiNote}`,
+      })
       return
     }
 
@@ -190,9 +203,12 @@ export function Companies() {
     }
 
     await refresh()
+    const errSuffix = aiErrors > 0
+      ? ` (AI failed on ${aiErrors} batch${aiErrors === 1 ? '' : 'es'} — ${lastAiError})`
+      : ''
     setDetectStatus({
       phase: 'done',
-      message: `Done — ${regexHits.length} from name, ${aiHits.length} from AI. ${stillUnknown.length - aiHits.length} still unknown.`,
+      message: `Done — ${regexHits.length} from name, ${aiHits.length} from AI. ${stillUnknown.length - aiHits.length} still unknown.${errSuffix}`,
     })
   }
 

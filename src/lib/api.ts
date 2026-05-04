@@ -26,11 +26,23 @@ export function hasWriteBackend(): boolean {
 
 async function callScript(action: string, params: Record<string, unknown>): Promise<unknown> {
   if (!APPS_SCRIPT_URL) throw new Error('No Apps Script URL configured')
-  const url = new URL(APPS_SCRIPT_URL)
-  url.searchParams.set('action', action)
-  url.searchParams.set('key', APPS_SCRIPT_KEY)
-  url.searchParams.set('payload', JSON.stringify(params))
-  const res = await fetch(url.toString(), { method: 'GET', redirect: 'follow' })
+
+  // POST with form-encoded body. Apps Script's doPost handler routes the
+  // same way as doGet, but POST avoids the ~16KB URL-length limit that
+  // bites on AI calls and bulk imports (where a single payload can carry
+  // 25+ company objects — easily blowing the GET budget).
+  // URLSearchParams body sets Content-Type: application/x-www-form-urlencoded
+  // which doesn't trigger CORS preflight.
+  const body = new URLSearchParams()
+  body.set('action', action)
+  body.set('key', APPS_SCRIPT_KEY)
+  body.set('payload', JSON.stringify(params))
+
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    body,
+    redirect: 'follow',
+  })
   if (!res.ok) throw new Error(`Write failed: HTTP ${res.status}`)
   return res.json()
 }
