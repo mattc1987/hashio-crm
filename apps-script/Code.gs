@@ -517,6 +517,21 @@ function handle_(e) {
         break;
       }
 
+      case 'getMergeTagDefaults': {
+        // Returns the current global merge-tag default map.
+        out.ok = true;
+        out.data = getMergeTagDefaults_();
+        break;
+      }
+
+      case 'setMergeTagDefaults': {
+        // Saves a partial patch. Body: { defaults: { firstName: 'there', company: 'your team' } }
+        const payload = safeJson_(params.payload) || {};
+        out.ok = true;
+        out.data = setMergeTagDefaults_(payload);
+        break;
+      }
+
       case 'getKnowledgeFeatureConfig': {
         // Returns the current per-feature ON/OFF map for Knowledge injection,
         // merged with hardcoded defaults. Used by Settings UI to render toggles.
@@ -2111,7 +2126,7 @@ function aiBuildEmailTemplate_(payload) {
     '6. ALWAYS use plain text (not markdown) — output uses \\n for line breaks.\n' +
     '7. ALWAYS include a single, specific CTA. No double-asks. No "let me know if you have questions" wishy-washy endings.\n' +
     '8. SUBJECT lines under 60 chars. Often shorter is stronger.\n' +
-    '9. Use merge tags where they add specificity: {{firstName}}, {{lastName}}, {{company}}, {{title}}, {{role}}, {{state}}. Don\'t shoehorn — better to omit a tag than have it look stuffed in.\n' +
+    '9. Use merge tags where they add specificity: {{firstName}}, {{lastName}}, {{company}}, {{title}}, {{role}}, {{state}}. Don\'t shoehorn — better to omit a tag than have it look stuffed in. ALWAYS include an inline fallback for any tag that COULD be empty in the user\'s CRM, using the syntax {{firstName||there}} or {{company||your team}} — this prevents broken-looking emails like "Hi ," when data is missing.\n' +
     '10. Cannabis cultivation context: reference real industry pain points when fitting — cost-per-pound, METRC reporting, multi-strain yield variance, harvest scheduling, GMP certification, multi-state expansion, Tier 1-3 licensing, indoor vs greenhouse vs outdoor, regulatory audits, K-12 / employee training, OSHA, state-specific compliance.\n' +
     '11. BOOKING LINKS: if your CTA proposes a meeting, paste ONLY a real URL from the list below — never invent calendly.com, hubspot.com, savvycal.com, or any other domain.\n\n' +
     '## BOOKING LINKS (real, active, verbatim only)\n' +
@@ -2272,6 +2287,7 @@ function aiBuildSequence_(payload) {
     'EMAIL config:\n' +
     '  { "subject": "...", "body": "...", "trackOpens": true, "replyBehavior": "exit" }\n' +
     '  Body supports merge tags: {{firstName}}, {{lastName}}, {{company}}, {{title}}, {{state}}, {{role}}.\n' +
+    '  IMPORTANT: any tag that might be empty in the CRM MUST include an inline fallback using {{firstName||there}} or {{company||your team}} syntax. This prevents broken-looking emails when a field is missing.\n' +
     '  Body should be plain text with line breaks (use \\n for newlines).\n' +
     '  Sign every email "— Matt" on its own line.\n' +
     '  Single CTA per email — booking link, reply prompt, or specific question.\n\n' +
@@ -3878,27 +3894,93 @@ function respondTrackClick_(sendId, url) {
   );
 }
 
+/** Resolve merge tags with three-tier fallback:
+ *
+ *   1. Inline fallback in the tag itself: {{firstName||there}} or
+ *      {{firstName|there}} — whichever value the user wrote. Wins over
+ *      everything else when present.
+ *   2. Global default from MERGE_TAG_DEFAULTS Script Property — JSON map
+ *      like { firstName: "there", company: "your team" } configured in
+ *      Settings → Merge tag fallbacks.
+ *   3. Hardcoded sensible defaults (last resort), so emails never go out
+ *      with "Hi ," — see HARDCODED_MERGE_FALLBACKS_ below.
+ *
+ * Supports the original tag set + falls back gracefully on unknown tags.
+ */
 function resolveMergeTags_(s, ctx) {
   if (!s) return '';
-  return String(s).replace(/\{\{\s*([\w.]+)\s*\}\}/g, function (_, key) {
+  const userDefaults = getMergeTagDefaults_();
+  return String(s).replace(/\{\{\s*([\w.]+)\s*(?:\|\|?\s*([^}]*?)\s*)?\}\}/g, function (_, key, inlineFallback) {
     key = String(key).trim();
     const c = ctx.contact || {};
     const d = ctx.deal || {};
     const co = ctx.company || {};
+
+    let val = '';
     switch (key) {
-      case 'firstName': return c.firstName || '';
-      case 'lastName': return c.lastName || '';
-      case 'fullName': return [c.firstName, c.lastName].filter(Boolean).join(' ');
-      case 'email': return c.email || '';
-      case 'title': return c.title || '';
+      case 'firstName':   val = c.firstName || ''; break;
+      case 'lastName':    val = c.lastName || ''; break;
+      case 'fullName':    val = [c.firstName, c.lastName].filter(Boolean).join(' '); break;
+      case 'email':       val = c.email || ''; break;
+      case 'title':       val = c.title || ''; break;
+      case 'role':        val = c.role || ''; break;
+      case 'state':       val = c.state || ''; break;
+      case 'phone':       val = c.phone || ''; break;
       case 'company':
-      case 'companyName': return co.name || '';
-      case 'dealTitle': return d.title || '';
-      case 'dealValue': return d.value ? String(d.value) : '';
-      case 'dealStage': return d.stage || '';
-      default: return '{{' + key + '}}';
+      case 'companyName': val = co.name || ''; break;
+      case 'dealTitle':   val = d.title || ''; break;
+      case 'dealValue':   val = d.value ? String(d.value) : ''; break;
+      case 'dealStage':   val = d.stage || ''; break;
+      default:            val = ''; break;
+    }
+    if (val) return val;
+    // Tier 2: inline fallback specified in the tag itself
+    if (inlineFallback !== undefined && inlineFallback !== '') return inlineFallback;
+    // Tier 3: global user-configured default (Settings → Merge tag fallbacks)
+    if (userDefaults && Object.prototype.hasOwnProperty.call(userDefaults, key) && userDefaults[key]) {
+      return userDefaults[key];
+    }
+    // Tier 4: hardcoded sensible default (last resort)
+    if (HARDCODED_MERGE_FALLBACKS_[key]) return HARDCODED_MERGE_FALLBACKS_[key];
+    // Unknown tag — leave the literal {{tag}} so the user can spot it
+    return '{{' + key + '}}';
+  });
+}
+
+/** Last-resort defaults — used only when the field is empty AND no inline
+ *  fallback AND no user-configured global default. Keeps emails sane. */
+const HARDCODED_MERGE_FALLBACKS_ = {
+  firstName: 'there',
+  lastName: '',
+  fullName: 'there',
+  company: 'your team',
+  companyName: 'your team',
+  title: '',
+  role: '',
+  state: '',
+};
+
+/** Read the global merge-tag default map from Script Properties. */
+function getMergeTagDefaults_() {
+  const raw = PropertiesService.getScriptProperties().getProperty('MERGE_TAG_DEFAULTS') || '{}';
+  try { return JSON.parse(raw) || {}; } catch (e) { return {}; }
+}
+
+/** Save (merge) merge-tag defaults. Body: { firstName: 'there', company: 'your team', ... }
+ *  Pass an empty string for a key to clear it. */
+function setMergeTagDefaults_(payload) {
+  const current = getMergeTagDefaults_();
+  const patch = (payload && payload.defaults) || {};
+  Object.keys(patch).forEach(function (k) {
+    const v = patch[k];
+    if (v === '' || v === null || v === undefined) {
+      delete current[k];
+    } else {
+      current[k] = String(v);
     }
   });
+  PropertiesService.getScriptProperties().setProperty('MERGE_TAG_DEFAULTS', JSON.stringify(current));
+  return getMergeTagDefaults_();
 }
 
 function getFromName_() {

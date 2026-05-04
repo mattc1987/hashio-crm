@@ -202,6 +202,12 @@ export function SequenceEditor() {
           )}
           <Button
             variant="ghost"
+            onClick={() => { navigate('/sequences/' + sequence.id + '/health-check') }}
+          >
+            Health check →
+          </Button>
+          <Button
+            variant="ghost"
             onClick={() => { navigate('/sequences/' + sequence.id + '/enrollments') }}
           >
             Enrollments →

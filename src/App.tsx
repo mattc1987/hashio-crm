@@ -16,6 +16,7 @@ import { Settings } from './pages/Settings'
 import { Sequences } from './pages/Sequences'
 import { SequenceEditor } from './pages/SequenceEditor'
 import { SequenceEnrollments } from './pages/SequenceEnrollments'
+import { SequenceHealthCheck } from './pages/SequenceHealthCheck'
 import { Templates } from './pages/Templates'
 import { Engagement } from './pages/Engagement'
 import { Knowledge } from './pages/Knowledge'
@@ -42,8 +43,10 @@ export default function App() {
         <Route path="/leads" element={<Leads />} />
         <Route path="/briefing" element={<Briefing />} />
         <Route path="/sequences" element={<Sequences />} />
+        <Route path="/sequences/health-check" element={<SequenceHealthCheck />} />
         <Route path="/sequences/:id" element={<SequenceEditor />} />
         <Route path="/sequences/:id/enrollments" element={<SequenceEnrollments />} />
+        <Route path="/sequences/:id/health-check" element={<SequenceHealthCheck />} />
         <Route path="/templates" element={<Templates />} />
         <Route path="/engagement" element={<Engagement />} />
         <Route path="/knowledge" element={<Knowledge />} />
