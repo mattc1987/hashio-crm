@@ -1090,6 +1090,34 @@ function advanceEnrollment_(enrollment) {
 
     case 'email': {
       if (!contact.email) throw new Error('Contact has no email: ' + contact.id);
+
+      // Anti-spam guardrail: enforce a minimum gap between consecutive sends
+      // to the same contact, regardless of how the sequence was authored.
+      // This catches mistakes from the AI Sequence Builder, manual edits,
+      // and any future bugs in branch/wait handling — if two emails would
+      // ship within MIN_SEND_GAP_MINUTES of each other, defer the second.
+      const minGapMin = Number(PropertiesService.getScriptProperties()
+        .getProperty('MIN_SEND_GAP_MINUTES') || '60');
+      if (minGapMin > 0) {
+        const lastTo = lastSendToContact_(contact.id);
+        if (lastTo && lastTo.sentAt) {
+          const lastTime = new Date(lastTo.sentAt).getTime();
+          const elapsedMin = (now.getTime() - lastTime) / 60000;
+          if (elapsedMin < minGapMin) {
+            // Defer — DON'T advance the step pointer; we'll retry on the
+            // next scheduler tick after the gap has elapsed.
+            const deferUntil = new Date(lastTime + minGapMin * 60000);
+            return {
+              currentStepIndex: stepIdx,
+              lastFiredAt: now.toISOString(),
+              nextFireAt: deferUntil.toISOString(),
+              status: 'active',
+              notes: 'Deferred ' + Math.ceil(minGapMin - elapsedMin) + ' min to honor min-send-gap',
+            };
+          }
+        }
+      }
+
       const subject = resolveMergeTags_(config.subject, ctx);
       const body = resolveMergeTags_(config.body, ctx);
       const sendResult = sendSequenceEmail_({
@@ -1136,12 +1164,37 @@ function advanceEnrollment_(enrollment) {
       if (nextIdx === -2) {
         return { status: 'completed', lastFiredAt: now.toISOString(), notes: 'Branch → end' };
       }
+
+      // Determine delay before firing the chosen branch arm.
+      //   1. Explicit per-arm: trueDelayMinutes / falseDelayMinutes
+      //   2. Explicit branch-wide: delayMinutes
+      //   3. Implicit safety default: if the next step is email/sms (not
+      //      wait), insert at least MIN_BRANCH_TO_SEND_GAP_MINUTES so a
+      //      tracked open/click can't trigger an instant follow-up.
+      const explicitDelay = result.matched
+        ? Number(config.trueDelayMinutes || config.delayMinutes || 0)
+        : Number(config.falseDelayMinutes || config.delayMinutes || 0);
+      let delayMin = explicitDelay;
+      if (delayMin === 0 && nextIdx < steps.length) {
+        const nextStep = steps[nextIdx];
+        if (nextStep && (nextStep.type === 'email' || nextStep.type === 'sms')) {
+          // Default safety gap — overridable via Script Properties so you
+          // can tune for your motion (1 hour is a sane default that still
+          // feels human).
+          const safetyGap = Number(PropertiesService.getScriptProperties()
+            .getProperty('MIN_BRANCH_TO_SEND_GAP_MINUTES') || '60');
+          delayMin = safetyGap;
+        }
+      }
+
+      const nextFireAt = new Date(now.getTime() + delayMin * 60 * 1000);
       return {
         currentStepIndex: nextIdx,
         lastFiredAt: now.toISOString(),
-        nextFireAt: now.toISOString(),
+        nextFireAt: nextFireAt.toISOString(),
         status: nextIdx >= steps.length ? 'completed' : 'active',
-        notes: 'Branch: ' + (result.matched ? 'TRUE' : 'FALSE') + ' → step ' + (nextIdx + 1),
+        notes: 'Branch: ' + (result.matched ? 'TRUE' : 'FALSE') + ' → step ' + (nextIdx + 1) +
+               (delayMin ? ' (in ' + delayMin + ' min)' : ''),
       };
     }
 
@@ -2187,7 +2240,8 @@ function aiBuildSequence_(payload) {
     '8. BRANCHING: Different content for opened-vs-not, clicked-vs-not, replied-vs-not. The sequence reacts intelligently.\n' +
     '9. VOICE: Warm, direct, low-key. NEVER use "synergy", "leverage", "circle back", "touch base", "just checking in", "ping you", "circle around", "moving forward", "low-hanging fruit". Sign emails "— Matt".\n' +
     '10. DON\'T APOLOGIZE for following up. Persistence is value, not pestering.\n' +
-    '11. BOOKING LINKS — when an email or SMS step proposes a meeting/demo/call, you MUST paste a real URL from the BOOKING LINKS block below VERBATIM. NEVER invent calendly.com, hubspot.com, savvycal.com, calendar.google.com, or any other domain. NEVER use a placeholder like [link] or {{link}}. If no booking link is suitable, write "I\'ll send a few times that work" instead of any URL.\n\n' +
+    '11. BOOKING LINKS — when an email or SMS step proposes a meeting/demo/call, you MUST paste a real URL from the BOOKING LINKS block below VERBATIM. NEVER invent calendly.com, hubspot.com, savvycal.com, calendar.google.com, or any other domain. NEVER use a placeholder like [link] or {{link}}. If no booking link is suitable, write "I\'ll send a few times that work" instead of any URL.\n' +
+    '12. NO INSTANT FOLLOW-UPS — every branch arm that routes to an email or SMS step MUST be preceded by a "wait" step (minimum 1 day for emails, 4 hours for SMS). NEVER let a branch flow directly into a send. Reason: branches evaluate as soon as the prior message is opened/clicked/etc., so a branch → email with no wait gate would fire seconds after the prospect interacts. That looks like spam and gets you reported.\n\n' +
     '## BOOKING LINKS (real, active, verbatim only)\n' +
     getActiveBookingLinksBlock_() + '\n\n' +
     '## SEQUENCE STRUCTURE TEMPLATE (adapt to the goal)\n' +
@@ -2227,9 +2281,10 @@ function aiBuildSequence_(payload) {
     'WAIT config:\n' +
     '  { "amount": <number>, "unit": "hours"|"days"|"weeks"|"businessDays" }\n\n' +
     'BRANCH config:\n' +
-    '  { "condition": { "kind": "opened-last"|"clicked-last"|"replied", "withinHours": 72 }, "trueNext": <step idx>, "falseNext": <step idx> }\n' +
+    '  { "condition": { "kind": "opened-last"|"clicked-last"|"replied", "withinHours": 72 }, "trueNext": <step idx>, "falseNext": <step idx>, "delayMinutes": <opt> }\n' +
     '  trueNext/falseNext are 0-based indexes into the steps array.\n' +
-    '  Use these to send different content based on engagement signals.\n\n' +
+    '  REQUIRED: trueNext and falseNext MUST point to a "wait" step, NOT directly to an email/sms step. Otherwise the email fires within minutes of the trigger event and looks like spam. The engine enforces a 60-minute safety floor as backup, but you should still emit explicit waits.\n' +
+    '  Optional delayMinutes: extra delay BEFORE evaluating the chosen arm. Useful for "wait then check" patterns.\n\n' +
     'ACTION config:\n' +
     '  { "kind": "create-task"|"update-contact"|"update-deal-stage"|"notify-owner"|"end-sequence"|"unsubscribe-contact", "payload": {...} }\n' +
     '  For LinkedIn touches, use kind="create-task" with payload.title="LinkedIn: connect/message {{firstName}}" and payload.notes="<script for Matt>"\n' +
@@ -3980,6 +4035,35 @@ function findAllWhere_(sheet, col, value) {
     if (String(data[r][c]) === String(value)) results.push(rowToObj_(headers, data[r]));
   }
   return results;
+}
+
+/** Returns the most recent EmailSend to a given contact, or null if none.
+ *  Used by the email step to enforce a minimum gap between consecutive
+ *  sends to the same contact (anti-spam guardrail). */
+function lastSendToContact_(contactId) {
+  if (!contactId) return null;
+  const sheet = getSpreadsheet_().getSheetByName('EmailSends');
+  if (!sheet) return null;
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return null;
+  const headers = data[0].map(String);
+  const cidCol = headers.indexOf('contactId');
+  const sentCol = headers.indexOf('sentAt');
+  if (cidCol < 0 || sentCol < 0) return null;
+  let latest = null;
+  let latestTime = 0;
+  for (let r = 1; r < data.length; r++) {
+    if (String(data[r][cidCol]) !== String(contactId)) continue;
+    const sentAt = String(data[r][sentCol] || '');
+    if (!sentAt) continue;
+    const t = new Date(sentAt).getTime();
+    if (isNaN(t)) continue;
+    if (t > latestTime) {
+      latestTime = t;
+      latest = rowToObj_(headers, data[r]);
+    }
+  }
+  return latest;
 }
 
 function applyEnrollmentUpdate_(sheet, rowIdx, headers, patch) {
